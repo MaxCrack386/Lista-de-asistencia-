@@ -766,8 +766,6 @@ function updateBadgeClasses(badge, current, total) {
 }
 
 function renderStats(thursdays) {
-    const thursdaysCount = thursdays.length;
-    
     // Filter participants based on active group filter
     const activeParticipants = state.participants.filter(p => 
         state.groupFilter === 'Todos' || (p.group || 'Grupo 1') === state.groupFilter
@@ -775,23 +773,10 @@ function renderStats(thursdays) {
     
     const totalParticipants = activeParticipants.length;
     
-    document.getElementById('total-participants-stat').textContent = totalParticipants;
-    document.getElementById('thursdays-count-stat').textContent = thursdaysCount;
-    
-    // Calculate Average Attendance
-    let totalPossible = totalParticipants * thursdaysCount;
-    let totalAttended = 0;
-    
-    activeParticipants.forEach(p => {
-        thursdays.forEach(th => {
-            if (state.attendance[p.id] && state.attendance[p.id][th.dateString]) {
-                totalAttended++;
-            }
-        });
-    });
-    
-    const percentage = totalPossible > 0 ? Math.round((totalAttended / totalPossible) * 100) : 0;
-    document.getElementById('average-attendance-stat').textContent = `${percentage}%`;
+    const totalEl = document.getElementById('total-participants-stat');
+    if (totalEl) {
+        totalEl.textContent = totalParticipants;
+    }
 }
 
 /* ==========================================================================
