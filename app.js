@@ -552,11 +552,12 @@ function renderHeaders(thursdays) {
 }
 
 function getFilteredParticipants() {
-    return state.participants.filter(p => {
+    const filtered = state.participants.filter(p => {
         const matchesSearch = p.name.toLowerCase().includes(state.searchQuery);
         const matchesGroup = state.groupFilter === 'Todos' || (p.group || 'Grupo 1') === state.groupFilter;
         return matchesSearch && matchesGroup;
     });
+    return filtered.sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
 }
 
 function renderFooter(thursdays, filteredParticipants) {
