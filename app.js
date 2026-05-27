@@ -9,7 +9,8 @@ let state = {
     searchQuery: '',
     groupFilter: 'Todos',
     editingParticipantId: null,
-    deletingParticipantId: null
+    deletingParticipantId: null,
+    deleteType: null
 };
 
 // Initial Sample Data to make the page instantly engaging
@@ -188,13 +189,30 @@ function initEventListeners() {
     if (deleteBackdrop) deleteBackdrop.addEventListener('click', closeDeleteModal);
     if (confirmDeleteBtn) confirmDeleteBtn.addEventListener('click', confirmDeleteParticipant);
 
+    // Delete options modal buttons
+    const closeDeleteOptionsBtn = document.getElementById('close-delete-options-btn');
+    const deleteOptionCancelBtn = document.getElementById('delete-option-cancel-btn');
+    const deleteOptionMonthBtn = document.getElementById('delete-option-month-btn');
+    const deleteOptionAllBtn = document.getElementById('delete-option-all-btn');
+    const deleteOptionsBackdrop = document.getElementById('delete-options-backdrop');
+
+    if (closeDeleteOptionsBtn) closeDeleteOptionsBtn.addEventListener('click', closeDeleteOptionsModal);
+    if (deleteOptionCancelBtn) deleteOptionCancelBtn.addEventListener('click', closeDeleteOptionsModal);
+    if (deleteOptionsBackdrop) deleteOptionsBackdrop.addEventListener('click', closeDeleteOptionsModal);
+    if (deleteOptionMonthBtn) deleteOptionMonthBtn.addEventListener('click', handleDeleteOptionMonth);
+    if (deleteOptionAllBtn) deleteOptionAllBtn.addEventListener('click', handleDeleteOptionAll);
+
     // Close drawer or modal on Escape key press
     window.addEventListener('keydown', (e) => {
         const drawer = document.getElementById('add-participant-drawer');
+        const deleteOptionsModal = document.getElementById('delete-options-modal');
         const deleteModal = document.getElementById('delete-confirm-modal');
         if (e.key === 'Escape') {
             if (drawer && !drawer.classList.contains('hidden')) {
                 closeDrawer();
+            }
+            if (deleteOptionsModal && !deleteOptionsModal.classList.contains('hidden')) {
+                closeDeleteOptionsModal();
             }
             if (deleteModal && !deleteModal.classList.contains('hidden')) {
                 closeDeleteModal();
@@ -253,6 +271,20 @@ function getMonthName(monthIndex) {
     return months[monthIndex];
 }
 
+function isMonthAfterOrEqual(m1, y1, m2, y2) {
+    if (y1 > y2) return true;
+    if (y1 === y2 && m1 >= m2) return true;
+    return false;
+}
+
+function isDateInMonth(dateStr, month, year) {
+    const parts = dateStr.split('-');
+    if (parts.length !== 3) return false;
+    const y = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10) - 1;
+    return y === year && m === month;
+}
+
 /* ==========================================================================
    CRUD Operations
    ========================================================================== */
@@ -277,7 +309,10 @@ function addParticipant() {
         id: newId,
         name: name,
         group: group,
-        createdAt: Date.now()
+        createdAt: Date.now(),
+        startMonth: state.currentMonth,
+        startYear: state.currentYear,
+        excludedMonths: []
     };
     
     state.participants.push(newParticipant);
@@ -438,12 +473,101 @@ function saveParticipantEdit() {
     }
 }
 
-function showDeleteModal(id, name) {
+function showDeleteOptionsModal(id, name) {
     state.deletingParticipantId = id;
     
-    const nameSpan = document.getElementById('delete-participant-name');
+    const nameSpan = document.getElementById('delete-options-participant-name');
     if (nameSpan) nameSpan.textContent = name;
     
+    const modal = document.getElementById('delete-options-modal');
+    const backdrop = document.getElementById('delete-options-backdrop');
+    
+    if (modal && backdrop) {
+        modal.classList.remove('hidden');
+        backdrop.classList.remove('hidden');
+        
+        void modal.offsetWidth;
+        void backdrop.offsetWidth;
+        
+        modal.classList.add('show');
+        backdrop.classList.add('show');
+        document.body.classList.add('modal-open');
+    }
+}
+
+function closeDeleteOptionsModal() {
+    const modal = document.getElementById('delete-options-modal');
+    const backdrop = document.getElementById('delete-options-backdrop');
+    
+    if (modal && backdrop) {
+        modal.classList.remove('show');
+        backdrop.classList.remove('show');
+        document.body.classList.remove('modal-open');
+        
+        setTimeout(() => {
+            modal.classList.add('hidden');
+            backdrop.classList.add('hidden');
+        }, 300);
+    }
+}
+
+function handleDeleteOptionMonth() {
+    const id = state.deletingParticipantId;
+    if (!id) return;
+    
+    const participant = state.participants.find(p => p.id === id);
+    if (!participant) return;
+    
+    state.deleteType = 'month';
+    
+    // Close options modal
+    closeDeleteOptionsModal();
+    
+    // Customize confirmation modal
+    const titleEl = document.getElementById('delete-confirm-title');
+    const textEl = document.getElementById('delete-confirm-text');
+    const nameEl = document.getElementById('delete-participant-name');
+    
+    if (titleEl) titleEl.textContent = 'Confirmar Eliminación - Solo este mes';
+    if (textEl) {
+        textEl.innerHTML = `¿Seguro que quieres ocultar y eliminar el registro de <strong>${participant.name}</strong> para el mes de <strong>${getMonthName(state.currentMonth)} de ${state.currentYear}</strong>? (Sus datos de otros meses quedarán intactos)`;
+    } else if (nameEl) {
+        nameEl.textContent = participant.name;
+    }
+    
+    // Open confirmation modal
+    showDeleteConfirmModal();
+}
+
+function handleDeleteOptionAll() {
+    const id = state.deletingParticipantId;
+    if (!id) return;
+    
+    const participant = state.participants.find(p => p.id === id);
+    if (!participant) return;
+    
+    state.deleteType = 'all';
+    
+    // Close options modal
+    closeDeleteOptionsModal();
+    
+    // Customize confirmation modal
+    const titleEl = document.getElementById('delete-confirm-title');
+    const textEl = document.getElementById('delete-confirm-text');
+    const nameEl = document.getElementById('delete-participant-name');
+    
+    if (titleEl) titleEl.textContent = 'Confirmar Eliminación - Todos los meses';
+    if (textEl) {
+        textEl.innerHTML = `¿Seguro que quieres eliminar a <strong>${participant.name}</strong> de todos los meses de manera permanente? Esta acción no se puede deshacer.`;
+    } else if (nameEl) {
+        nameEl.textContent = participant.name;
+    }
+    
+    // Open confirmation modal
+    showDeleteConfirmModal();
+}
+
+function showDeleteConfirmModal() {
     const modal = document.getElementById('delete-confirm-modal');
     const backdrop = document.getElementById('delete-confirm-backdrop');
     
@@ -473,6 +597,7 @@ function closeDeleteModal() {
             modal.classList.add('hidden');
             backdrop.classList.add('hidden');
             state.deletingParticipantId = null;
+            state.deleteType = null;
         }, 300);
     }
 }
@@ -486,13 +611,39 @@ function confirmDeleteParticipant() {
     
     const name = participant.name;
     
-    state.participants = state.participants.filter(p => p.id !== id);
-    delete state.attendance[id];
-    
-    saveToLocalStorage();
-    closeDeleteModal();
-    renderApp();
-    showToast(`Registro de "${name}" eliminado de manera permanente`, 'danger');
+    if (state.deleteType === 'month') {
+        // Exclude participant from the current month
+        if (!participant.excludedMonths) {
+            participant.excludedMonths = [];
+        }
+        const monthKey = `${state.currentYear}-${state.currentMonth}`;
+        if (!participant.excludedMonths.includes(monthKey)) {
+            participant.excludedMonths.push(monthKey);
+        }
+        
+        // Clear all attendance records for this month
+        if (state.attendance[id]) {
+            Object.keys(state.attendance[id]).forEach(dateStr => {
+                if (isDateInMonth(dateStr, state.currentMonth, state.currentYear)) {
+                    delete state.attendance[id][dateStr];
+                }
+            });
+        }
+        
+        saveToLocalStorage();
+        closeDeleteModal();
+        renderApp();
+        showToast(`Registro de "${name}" eliminado solo para este mes`, 'danger');
+    } else {
+        // Full permanent deletion from all months
+        state.participants = state.participants.filter(p => p.id !== id);
+        delete state.attendance[id];
+        
+        saveToLocalStorage();
+        closeDeleteModal();
+        renderApp();
+        showToast(`Registro de "${name}" eliminado de manera permanente`, 'danger');
+    }
 }
 
 /* ==========================================================================
@@ -555,7 +706,17 @@ function getFilteredParticipants() {
     const filtered = state.participants.filter(p => {
         const matchesSearch = p.name.toLowerCase().includes(state.searchQuery);
         const matchesGroup = state.groupFilter === 'Todos' || (p.group || 'Grupo 1') === state.groupFilter;
-        return matchesSearch && matchesGroup;
+        
+        // Month registration & eligibility check
+        const startMonth = typeof p.startMonth === 'number' ? p.startMonth : 0;
+        const startYear = typeof p.startYear === 'number' ? p.startYear : 2025;
+        const isEligibleByStart = isMonthAfterOrEqual(state.currentMonth, state.currentYear, startMonth, startYear);
+        
+        // Excluded months check (Solo este mes deletion)
+        const monthKey = `${state.currentYear}-${state.currentMonth}`;
+        const isNotExcluded = !p.excludedMonths || !p.excludedMonths.includes(monthKey);
+        
+        return matchesSearch && matchesGroup && isEligibleByStart && isNotExcluded;
     });
     return filtered.sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
 }
@@ -742,7 +903,7 @@ function renderRowsOnly() {
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
         `;
         deleteBtn.addEventListener('click', () => {
-            showDeleteModal(participant.id, participant.name);
+            showDeleteOptionsModal(participant.id, participant.name);
         });
         
         actionsContainer.appendChild(editBtn);

@@ -205,12 +205,37 @@
         </div>
     </div>
 
+    <!-- Modal de Opciones de Eliminación -->
+    <div id="delete-options-backdrop" class="modal-backdrop hidden"></div>
+    <div id="delete-options-modal" class="modal hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Opciones de Eliminación</h3>
+                <button id="close-delete-options-btn" class="btn-close" aria-label="Cerrar">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <p>¿Cómo deseas eliminar el registro de <strong id="delete-options-participant-name"></strong>?</p>
+                <p style="margin-top: 12px; font-size: 0.9rem; color: var(--text-secondary);">
+                    <strong>Solo este mes:</strong> Se ocultará al participante únicamente en el mes actual. Sus datos de meses anteriores y futuros se mantendrán intactos.<br><br>
+                    <strong>Todos los meses:</strong> Se borrará de forma permanente de todo el historial de la aplicación.
+                </p>
+            </div>
+            <div class="modal-footer" style="flex-wrap: wrap; gap: 8px;">
+                <button id="delete-option-cancel-btn" class="btn btn-secondary">Cancelar</button>
+                <button id="delete-option-month-btn" class="btn btn-primary">Solo este mes</button>
+                <button id="delete-option-all-btn" class="btn btn-danger">Todos los meses</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Modal de Confirmación de Eliminación -->
     <div id="delete-confirm-backdrop" class="modal-backdrop hidden"></div>
     <div id="delete-confirm-modal" class="modal hidden">
         <div class="modal-content">
             <div class="modal-header">
-                <h3>Confirmar Eliminación</h3>
+                <h3 id="delete-confirm-title">Confirmar Eliminación</h3>
                 <button id="close-delete-modal-btn" class="btn-close" aria-label="Cerrar">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                 </button>
