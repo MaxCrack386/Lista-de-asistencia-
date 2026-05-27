@@ -24,7 +24,10 @@ let state = {
     selectedPersParticipantId: null,
     persSearchQuery: '',
     deletingPersId: null,
-    deletingPersType: null // 'participant' | 'class' | 'payment' | 'note'
+    deletingPersType: null, // 'participant' | 'class' | 'payment' | 'note'
+    editingPersClassId: null,
+    editingPersPaymentId: null,
+    editingPersNoteId: null
 };
 
 // Initial Sample Data for General Reinforcements
@@ -387,7 +390,7 @@ function initEventListeners() {
     if (persClassForm) {
         persClassForm.addEventListener('submit', (e) => {
             e.preventDefault();
-            addPersClass();
+            handlePersClassSubmit();
         });
     }
 
@@ -398,7 +401,7 @@ function initEventListeners() {
     if (persPaymentForm) {
         persPaymentForm.addEventListener('submit', (e) => {
             e.preventDefault();
-            addPersPayment();
+            handlePersPaymentSubmit();
         });
     }
 
@@ -416,7 +419,7 @@ function initEventListeners() {
     if (persNoteForm) {
         persNoteForm.addEventListener('submit', (e) => {
             e.preventDefault();
-            addPersNote();
+            handlePersNoteSubmit();
         });
     }
 
@@ -1415,6 +1418,9 @@ function renderPersParticipantDetail() {
                     </td>
                     <td class="text-center">
                         <div class="actions-cell" style="justify-content: center;">
+                            <button class="btn-action btn-action-edit" title="Editar clase" onclick="openPersClassEdit('${c.id}');">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                            </button>
                             <button class="btn-action btn-action-delete" title="Eliminar clase" onclick="openPersDeleteModal('${c.id}', 'class');">
                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
                             </button>
@@ -1446,6 +1452,9 @@ function renderPersParticipantDetail() {
                     <td class="text-right" style="color: var(--success-color);"><strong>$${Number(pay.amount).toLocaleString('es-ES')}</strong></td>
                     <td class="text-center">
                         <div class="actions-cell" style="justify-content: center;">
+                            <button class="btn-action btn-action-edit" title="Editar pago" onclick="openPersPaymentEdit('${pay.id}');">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                            </button>
                             <button class="btn-action btn-action-delete" title="Eliminar pago" onclick="openPersDeleteModal('${pay.id}', 'payment');">
                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
                             </button>
@@ -1580,8 +1589,130 @@ function closePersClassModal() {
         setTimeout(() => {
             modal.classList.add('hidden');
             backdrop.classList.add('hidden');
+            state.editingPersClassId = null;
+            const modalTitle = modal.querySelector('.modal-header h3');
+            if (modalTitle) modalTitle.textContent = 'Registrar Clase / Asistencia';
+            const submitBtn = modal.querySelector('button[type="submit"]');
+            if (submitBtn) submitBtn.textContent = 'Registrar';
         }, 300);
     }
+}
+
+function handlePersClassSubmit() {
+    if (state.editingPersClassId) {
+        savePersClassEdit();
+    } else {
+        addPersClass();
+    }
+}
+
+function openPersClassEdit(classId) {
+    const studentId = state.selectedPersParticipantId;
+    if (!studentId) return;
+
+    const classes = state.persClasses[studentId] || [];
+    const classObj = classes.find(c => c.id === classId);
+    if (!classObj) return;
+
+    state.editingPersClassId = classId;
+
+    const modal = document.getElementById('add-pers-class-modal');
+    const backdrop = document.getElementById('add-pers-class-backdrop');
+
+    // Fill form
+    document.getElementById('pers-class-day').value = classObj.day;
+    document.getElementById('pers-class-date').value = classObj.date;
+    document.getElementById('pers-class-start-time').value = classObj.startTime;
+    document.getElementById('pers-class-end-time').value = classObj.endTime;
+    document.getElementById('pers-class-price').value = classObj.price;
+    document.getElementById('pers-class-paid-checkbox').checked = classObj.paid;
+
+    // Change title and button text
+    const title = modal.querySelector('.modal-header h3');
+    if (title) title.textContent = 'Editar Clase / Asistencia';
+
+    const submitBtn = modal.querySelector('button[type="submit"]');
+    if (submitBtn) submitBtn.textContent = 'Guardar Cambios';
+
+    if (modal && backdrop) {
+        modal.classList.remove('hidden');
+        backdrop.classList.remove('hidden');
+        
+        void modal.offsetWidth;
+        void backdrop.offsetWidth;
+        
+        modal.classList.add('show');
+        backdrop.classList.add('show');
+        document.body.classList.add('modal-open');
+    }
+}
+
+function savePersClassEdit() {
+    const studentId = state.selectedPersParticipantId;
+    if (!studentId) return;
+
+    const classId = state.editingPersClassId;
+    const classes = state.persClasses[studentId] || [];
+    const classObj = classes.find(c => c.id === classId);
+    if (!classObj) return;
+
+    const day = document.getElementById('pers-class-day').value;
+    const date = document.getElementById('pers-class-date').value;
+    const startTime = document.getElementById('pers-class-start-time').value;
+    const endTime = document.getElementById('pers-class-end-time').value;
+    const price = Number(document.getElementById('pers-class-price').value) || 0;
+    const isPaid = document.getElementById('pers-class-paid-checkbox').checked;
+
+    if (!date || !startTime || !endTime) {
+        showToast('Por favor completa todos los campos requeridos', 'danger');
+        return;
+    }
+
+    classObj.day = day;
+    classObj.date = date;
+    classObj.startTime = startTime;
+    classObj.endTime = endTime;
+    classObj.price = price;
+
+    // Check payment state transitions
+    const wasPaid = classObj.paid;
+    const oldPaymentId = classObj.paymentId;
+
+    classObj.paid = isPaid;
+
+    if (isPaid) {
+        if (wasPaid && oldPaymentId) {
+            // Update existing linked payment
+            const payments = state.persPayments[studentId] || [];
+            const payObj = payments.find(p => p.id === oldPaymentId);
+            if (payObj) {
+                payObj.date = date;
+                payObj.amount = price;
+            }
+        } else if (price > 0) {
+            // Create a new linked payment
+            const paymentId = 'pay_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+            const newPayment = {
+                id: paymentId,
+                date: date,
+                amount: price
+            };
+            if (!state.persPayments[studentId]) state.persPayments[studentId] = [];
+            state.persPayments[studentId].push(newPayment);
+            classObj.paymentId = paymentId;
+        }
+    } else {
+        if (wasPaid && oldPaymentId) {
+            // Remove the linked payment
+            state.persPayments[studentId] = (state.persPayments[studentId] || []).filter(pay => pay.id !== oldPaymentId);
+            classObj.paymentId = null;
+        }
+    }
+
+    savePersToLocalStorage();
+    closePersClassModal();
+    renderPersParticipantDetail();
+    showToast('Clase actualizada correctamente');
 }
 
 function addPersClass() {
@@ -1709,8 +1840,96 @@ function closePersPaymentModal() {
         setTimeout(() => {
             modal.classList.add('hidden');
             backdrop.classList.add('hidden');
+            state.editingPersPaymentId = null;
+            const modalTitle = modal.querySelector('.modal-header h3');
+            if (modalTitle) modalTitle.textContent = 'Registrar Pago / Abono';
+            const submitBtn = modal.querySelector('button[type="submit"]');
+            if (submitBtn) submitBtn.textContent = 'Registrar Pago';
         }, 300);
     }
+}
+
+function handlePersPaymentSubmit() {
+    if (state.editingPersPaymentId) {
+        savePersPaymentEdit();
+    } else {
+        addPersPayment();
+    }
+}
+
+function openPersPaymentEdit(paymentId) {
+    const studentId = state.selectedPersParticipantId;
+    if (!studentId) return;
+
+    const payments = state.persPayments[studentId] || [];
+    const payObj = payments.find(p => p.id === paymentId);
+    if (!payObj) return;
+
+    state.editingPersPaymentId = paymentId;
+
+    const modal = document.getElementById('add-pers-payment-modal');
+    const backdrop = document.getElementById('add-pers-payment-backdrop');
+
+    // Fill form
+    document.getElementById('pers-payment-date').value = payObj.date;
+    document.getElementById('pers-payment-amount').value = payObj.amount;
+
+    // Change title and button text
+    const title = modal.querySelector('.modal-header h3');
+    if (title) title.textContent = 'Editar Pago / Abono';
+
+    const submitBtn = modal.querySelector('button[type="submit"]');
+    if (submitBtn) submitBtn.textContent = 'Guardar Cambios';
+
+    if (modal && backdrop) {
+        modal.classList.remove('hidden');
+        backdrop.classList.remove('hidden');
+        
+        void modal.offsetWidth;
+        void backdrop.offsetWidth;
+        
+        modal.classList.add('show');
+        backdrop.classList.add('show');
+        document.body.classList.add('modal-open');
+    }
+}
+
+function savePersPaymentEdit() {
+    const studentId = state.selectedPersParticipantId;
+    if (!studentId) return;
+
+    const paymentId = state.editingPersPaymentId;
+    const payments = state.persPayments[studentId] || [];
+    const payObj = payments.find(p => p.id === paymentId);
+    if (!payObj) return;
+
+    const date = document.getElementById('pers-payment-date').value;
+    const amount = Number(document.getElementById('pers-payment-amount').value) || 0;
+
+    if (!date || amount <= 0) {
+        showToast('Completa los campos con valores válidos', 'danger');
+        return;
+    }
+
+    payObj.date = date;
+    payObj.amount = amount;
+
+    // Update linked class price and date if any
+    const classes = state.persClasses[studentId] || [];
+    classes.forEach(c => {
+        if (c.paymentId === paymentId) {
+            c.price = amount;
+            c.date = date;
+            const dateObj = new Date(date + 'T00:00:00');
+            const dayNames = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+            c.day = dayNames[dateObj.getDay()];
+        }
+    });
+
+    savePersToLocalStorage();
+    closePersPaymentModal();
+    renderPersParticipantDetail();
+    showToast('Pago actualizado correctamente');
 }
 
 function addPersPayment() {
@@ -1785,8 +2004,92 @@ function closePersNoteModal() {
         setTimeout(() => {
             modal.classList.add('hidden');
             backdrop.classList.add('hidden');
+            state.editingPersNoteId = null;
+            const modalTitle = modal.querySelector('.modal-header h3');
+            if (modalTitle) modalTitle.textContent = 'Agregar Nota de Seguimiento';
+            const submitBtn = modal.querySelector('button[type="submit"]');
+            if (submitBtn) {
+                submitBtn.textContent = 'Guardar Nota';
+                submitBtn.style.backgroundColor = 'var(--warning-color)';
+                submitBtn.style.color = '#ffffff';
+            }
         }, 300);
     }
+}
+
+function handlePersNoteSubmit() {
+    if (state.editingPersNoteId) {
+        savePersNoteEdit();
+    } else {
+        addPersNote();
+    }
+}
+
+function openPersNoteEdit(noteId) {
+    const studentId = state.selectedPersParticipantId;
+    if (!studentId) return;
+
+    const notes = state.persNotes[studentId] || [];
+    const noteObj = notes.find(n => n.id === noteId);
+    if (!noteObj) return;
+
+    state.editingPersNoteId = noteId;
+
+    const modal = document.getElementById('add-pers-note-modal');
+    const backdrop = document.getElementById('add-pers-note-backdrop');
+
+    // Fill form
+    document.getElementById('pers-note-date').value = noteObj.date;
+    document.getElementById('pers-note-text').value = noteObj.text;
+
+    // Change title and button text
+    const title = modal.querySelector('.modal-header h3');
+    if (title) title.textContent = 'Editar Nota de Seguimiento';
+
+    const submitBtn = modal.querySelector('button[type="submit"]');
+    if (submitBtn) {
+        submitBtn.textContent = 'Guardar Cambios';
+        submitBtn.style.backgroundColor = 'var(--warning-color)';
+        submitBtn.style.color = '#ffffff';
+    }
+
+    if (modal && backdrop) {
+        modal.classList.remove('hidden');
+        backdrop.classList.remove('hidden');
+        
+        void modal.offsetWidth;
+        void backdrop.offsetWidth;
+        
+        modal.classList.add('show');
+        backdrop.classList.add('show');
+        document.body.classList.add('modal-open');
+    }
+}
+
+function savePersNoteEdit() {
+    const studentId = state.selectedPersParticipantId;
+    if (!studentId) return;
+
+    const noteId = state.editingPersNoteId;
+    const notes = state.persNotes[studentId] || [];
+    const noteObj = notes.find(n => n.id === noteId);
+    if (!noteObj) return;
+
+    const date = document.getElementById('pers-note-date').value;
+    const text = document.getElementById('pers-note-text').value.trim();
+
+    if (!date || !text) {
+        showToast('Por favor completa todos los campos', 'danger');
+        return;
+    }
+
+    noteObj.date = date;
+    noteObj.text = text;
+
+    savePersToLocalStorage();
+    closePersNoteModal();
+    renderPersParticipantDetail();
+    showToast('Nota actualizada correctamente');
 }
 
 function addPersNote() {
@@ -1842,9 +2145,14 @@ function renderPersNotes(studentId) {
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
                         ${note.date.split('-').reverse().join('/')}
                     </span>
-                    <button class="btn-action btn-action-delete" title="Eliminar nota" onclick="openPersDeleteModal('${note.id}', 'note');">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
-                    </button>
+                    <div style="display: flex; gap: 8px;">
+                        <button class="btn-action btn-action-edit" title="Editar nota" onclick="openPersNoteEdit('${note.id}');">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                        </button>
+                        <button class="btn-action btn-action-delete" title="Eliminar nota" onclick="openPersDeleteModal('${note.id}', 'note');">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                        </button>
+                    </div>
                 </div>
                 <div class="note-item-content">${escapeHTML(note.text)}</div>
             `;
