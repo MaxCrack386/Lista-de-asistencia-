@@ -2,6 +2,7 @@
    State & Setup Configuration
    ========================================================================== */
 let state = {
+    // Thursday general attendance states
     participants: [],
     attendance: {},
     currentMonth: new Date().getMonth(),
@@ -10,10 +11,23 @@ let state = {
     groupFilter: 'Todos',
     editingParticipantId: null,
     deletingParticipantId: null,
-    deleteType: null
+    deleteType: null,
+    
+    // SPA Router & Navigation State
+    currentView: 'menu', // 'menu' | 'general' | 'personalized'
+    
+    // Personalized tutorings states
+    persParticipants: [],
+    persClasses: {},  // participantId -> array of class objects
+    persPayments: {}, // participantId -> array of payment objects
+    persNotes: {},    // participantId -> array of note objects
+    selectedPersParticipantId: null,
+    persSearchQuery: '',
+    deletingPersId: null,
+    deletingPersType: null // 'participant' | 'class' | 'payment' | 'note'
 };
 
-// Initial Sample Data to make the page instantly engaging
+// Initial Sample Data for General Reinforcements
 const DEMO_PARTICIPANTS = [
     { id: 'part_1', name: 'Sofía Rodríguez', group: 'Grupo 1', createdAt: Date.now() - 50000 },
     { id: 'part_2', name: 'Carlos Mendoza', group: 'Grupo 2', createdAt: Date.now() - 40000 },
@@ -24,6 +38,40 @@ const DEMO_ATTENDANCE = {
     'part_1': {},
     'part_2': {},
     'part_3': {}
+};
+
+// Initial Sample Data for Personalized Reinforcements
+const DEMO_PERS_PARTICIPANTS = [
+    { id: 'pers_1', name: 'Andrés Felipe Gómez', createdAt: Date.now() - 360000000 },
+    { id: 'pers_2', name: 'Camila Torres', createdAt: Date.now() - 250000000 }
+];
+
+const DEMO_PERS_CLASSES = {
+    'pers_1': [
+        { id: 'class_1_1', day: 'Lunes', date: '2026-05-18', startTime: '15:00', endTime: '16:00', price: 15000, paid: true, paymentId: 'pay_1_1' },
+        { id: 'class_1_2', day: 'Miércoles', date: '2026-05-20', startTime: '15:00', endTime: '16:00', price: 15000, paid: true, paymentId: 'pay_1_2' },
+        { id: 'class_1_3', day: 'Viernes', date: '2026-05-22', startTime: '15:30', endTime: '16:30', price: 18000, paid: false, paymentId: null }
+    ],
+    'pers_2': [
+        { id: 'class_2_1', day: 'Martes', date: '2026-05-19', startTime: '10:00', endTime: '11:30', price: 20000, paid: true, paymentId: 'pay_2_1' }
+    ]
+};
+
+const DEMO_PERS_PAYMENTS = {
+    'pers_1': [
+        { id: 'pay_1_1', date: '2026-05-18', amount: 15000 },
+        { id: 'pay_1_2', date: '2026-05-20', amount: 15000 }
+    ],
+    'pers_2': [
+        { id: 'pay_2_1', date: '2026-05-19', amount: 20000 }
+    ]
+};
+
+const DEMO_PERS_NOTES = {
+    'pers_1': [
+        { id: 'note_1_1', date: '2026-05-18', text: 'El alumno avanzó bastante en la resolución de ecuaciones de primer grado.' },
+        { id: 'note_1_2', date: '2026-05-20', text: 'Se le dificulta un poco recordar la ley de los signos. Se recomienda repasar antes de la próxima clase.' }
+    ]
 };
 
 // Populate some demo attendances for the current month
@@ -44,21 +92,11 @@ function setupDemoData(thursdays) {
 }
 
 /* ==========================================================================
-   Core Initialization
-   ========================================================================== */
-document.addEventListener('DOMContentLoaded', () => {
-    initTheme();
-    loadFromLocalStorage();
-    initSelectors();
-    initEventListeners();
-    renderApp();
-});
-
-/* ==========================================================================
    Theme Management
    ========================================================================== */
 function initTheme() {
     const themeToggle = document.getElementById('theme-toggle');
+    const menuThemeToggle = document.getElementById('menu-theme-toggle');
     
     // Check local storage or system preference
     const savedTheme = localStorage.getItem('asistencia_theme');
@@ -68,18 +106,26 @@ function initTheme() {
         document.body.classList.add('light-theme');
     }
     
-    themeToggle.addEventListener('click', () => {
+    const handleThemeToggle = () => {
         document.body.classList.toggle('light-theme');
         const isLight = document.body.classList.contains('light-theme');
         localStorage.setItem('asistencia_theme', isLight ? 'light' : 'dark');
         showToast(isLight ? 'Modo claro activado' : 'Modo oscuro activado', 'info');
-    });
+    };
+
+    if (themeToggle) {
+        themeToggle.addEventListener('click', handleThemeToggle);
+    }
+    if (menuThemeToggle) {
+        menuThemeToggle.addEventListener('click', handleThemeToggle);
+    }
 }
 
 /* ==========================================================================
    Local Storage Management
    ========================================================================== */
 function loadFromLocalStorage() {
+    // 1. Thursday General Attendance
     const storedParticipants = localStorage.getItem('asistencia_participants');
     const storedAttendance = localStorage.getItem('asistencia_records');
     
@@ -97,11 +143,38 @@ function loadFromLocalStorage() {
     if (storedAttendance) {
         state.attendance = JSON.parse(storedAttendance);
     }
+
+    // 2. Personalized Reinforcements
+    const storedPersParticipants = localStorage.getItem('asistencia_pers_participants');
+    const storedPersClasses = localStorage.getItem('asistencia_pers_classes');
+    const storedPersPayments = localStorage.getItem('asistencia_pers_payments');
+    const storedPersNotes = localStorage.getItem('asistencia_pers_notes');
+
+    if (storedPersParticipants) {
+        state.persParticipants = JSON.parse(storedPersParticipants);
+        state.persClasses = storedPersClasses ? JSON.parse(storedPersClasses) : {};
+        state.persPayments = storedPersPayments ? JSON.parse(storedPersPayments) : {};
+        state.persNotes = storedPersNotes ? JSON.parse(storedPersNotes) : {};
+    } else {
+        // Setup initial personalized demo data
+        state.persParticipants = [...DEMO_PERS_PARTICIPANTS];
+        state.persClasses = {...DEMO_PERS_CLASSES};
+        state.persPayments = {...DEMO_PERS_PAYMENTS};
+        state.persNotes = {...DEMO_PERS_NOTES};
+        savePersToLocalStorage();
+    }
 }
 
 function saveToLocalStorage() {
     localStorage.setItem('asistencia_participants', JSON.stringify(state.participants));
     localStorage.setItem('asistencia_records', JSON.stringify(state.attendance));
+}
+
+function savePersToLocalStorage() {
+    localStorage.setItem('asistencia_pers_participants', JSON.stringify(state.persParticipants));
+    localStorage.setItem('asistencia_pers_classes', JSON.stringify(state.persClasses));
+    localStorage.setItem('asistencia_pers_payments', JSON.stringify(state.persPayments));
+    localStorage.setItem('asistencia_pers_notes', JSON.stringify(state.persNotes));
 }
 
 /* ==========================================================================
@@ -112,23 +185,61 @@ function initSelectors() {
     const yearSelect = document.getElementById('year-select');
     
     // Set default select values to current month and year
-    monthSelect.value = state.currentMonth;
+    if (monthSelect) monthSelect.value = state.currentMonth;
     
     // Set up year selector range
-    const currentYr = new Date().getFullYear();
-    yearSelect.innerHTML = '';
-    for (let yr = currentYr - 2; yr <= currentYr + 3; yr++) {
-        const option = document.createElement('option');
-        option.value = yr;
-        option.textContent = yr;
-        if (yr === state.currentYear) {
-            option.selected = true;
+    if (yearSelect) {
+        const currentYr = new Date().getFullYear();
+        yearSelect.innerHTML = '';
+        for (let yr = currentYr - 2; yr <= currentYr + 3; yr++) {
+            const option = document.createElement('option');
+            option.value = yr;
+            option.textContent = yr;
+            if (yr === state.currentYear) {
+                option.selected = true;
+            }
+            yearSelect.appendChild(option);
         }
-        yearSelect.appendChild(option);
     }
 }
 
 function initEventListeners() {
+    // === SPA View Navigation ===
+    const btnNavGeneral = document.getElementById('btn-nav-general');
+    const btnNavPersonalized = document.getElementById('btn-nav-personalized');
+    const btnBackToMenu = document.getElementById('btn-back-to-menu');
+    const btnBackToMenuFromPers = document.getElementById('btn-back-to-menu-from-pers');
+
+    if (btnNavGeneral) {
+        btnNavGeneral.addEventListener('click', () => {
+            state.currentView = 'general';
+            renderApp();
+        });
+    }
+
+    if (btnNavPersonalized) {
+        btnNavPersonalized.addEventListener('click', () => {
+            state.currentView = 'personalized';
+            state.selectedPersParticipantId = null; // reset details subview
+            renderApp();
+        });
+    }
+
+    if (btnBackToMenu) {
+        btnBackToMenu.addEventListener('click', () => {
+            state.currentView = 'menu';
+            renderApp();
+        });
+    }
+
+    if (btnBackToMenuFromPers) {
+        btnBackToMenuFromPers.addEventListener('click', () => {
+            state.currentView = 'menu';
+            renderApp();
+        });
+    }
+
+    // === Thursday General Reinforcements Event Listeners ===
     const monthSelect = document.getElementById('month-select');
     const yearSelect = document.getElementById('year-select');
     const searchInput = document.getElementById('search-participant');
@@ -141,20 +252,26 @@ function initEventListeners() {
     const backdrop = document.getElementById('add-participant-drawer-backdrop');
     const drawerForm = document.getElementById('drawer-add-participant-form');
     
-    monthSelect.addEventListener('change', (e) => {
-        state.currentMonth = parseInt(e.target.value);
-        renderApp();
-    });
+    if (monthSelect) {
+        monthSelect.addEventListener('change', (e) => {
+            state.currentMonth = parseInt(e.target.value);
+            renderApp();
+        });
+    }
     
-    yearSelect.addEventListener('change', (e) => {
-        state.currentYear = parseInt(e.target.value);
-        renderApp();
-    });
+    if (yearSelect) {
+        yearSelect.addEventListener('change', (e) => {
+            state.currentYear = parseInt(e.target.value);
+            renderApp();
+        });
+    }
     
-    searchInput.addEventListener('input', (e) => {
-        state.searchQuery = e.target.value.toLowerCase().trim();
-        renderRowsOnly(); // Optimization: just re-render row contents
-    });
+    if (searchInput) {
+        searchInput.addEventListener('input', (e) => {
+            state.searchQuery = e.target.value.toLowerCase().trim();
+            renderRowsOnly(); 
+        });
+    }
     
     // Group filter event
     const filterGroupSelect = document.getElementById('filter-group');
@@ -166,12 +283,8 @@ function initEventListeners() {
     }
     
     // Open Drawer events
-    if (openDrawerBtn) {
-        openDrawerBtn.addEventListener('click', openDrawer);
-    }
-    if (emptyStateAddBtn) {
-        emptyStateAddBtn.addEventListener('click', openDrawer);
-    }
+    if (openDrawerBtn) openDrawerBtn.addEventListener('click', openDrawer);
+    if (emptyStateAddBtn) emptyStateAddBtn.addEventListener('click', openDrawer);
     
     // Close Drawer events
     if (closeDrawerBtn) closeDrawerBtn.addEventListener('click', closeDrawer);
@@ -201,32 +314,142 @@ function initEventListeners() {
     if (deleteOptionsBackdrop) deleteOptionsBackdrop.addEventListener('click', closeDeleteOptionsModal);
     if (deleteOptionMonthBtn) deleteOptionMonthBtn.addEventListener('click', handleDeleteOptionMonth);
     if (deleteOptionAllBtn) deleteOptionAllBtn.addEventListener('click', handleDeleteOptionAll);
-
-    // Close drawer or modal on Escape key press
-    window.addEventListener('keydown', (e) => {
-        const drawer = document.getElementById('add-participant-drawer');
-        const deleteOptionsModal = document.getElementById('delete-options-modal');
-        const deleteModal = document.getElementById('delete-confirm-modal');
-        if (e.key === 'Escape') {
-            if (drawer && !drawer.classList.contains('hidden')) {
-                closeDrawer();
-            }
-            if (deleteOptionsModal && !deleteOptionsModal.classList.contains('hidden')) {
-                closeDeleteOptionsModal();
-            }
-            if (deleteModal && !deleteModal.classList.contains('hidden')) {
-                closeDeleteModal();
-            }
-        }
-    });
     
-    // Add / Edit Participant inside the Drawer Form
     if (drawerForm) {
         drawerForm.addEventListener('submit', (e) => {
             e.preventDefault();
             handleParticipantSubmit();
         });
     }
+
+    // === Refuerzos Personalizados Event Listeners ===
+    const searchPersInput = document.getElementById('search-pers-participant');
+    const openPersDrawerBtn = document.getElementById('open-pers-drawer-btn');
+    const persEmptyStateAddBtn = document.getElementById('pers-empty-state-add-btn');
+    const closePersDrawerBtn = document.getElementById('close-pers-drawer-btn');
+    const cancelPersDrawerBtn = document.getElementById('cancel-pers-drawer-btn');
+    const persDrawerBackdrop = document.getElementById('add-pers-participant-drawer-backdrop');
+    const persDrawerForm = document.getElementById('drawer-add-pers-participant-form');
+    
+    const btnBackToPersList = document.getElementById('btn-back-to-pers-list');
+    const btnPersAddClass = document.getElementById('btn-pers-add-class');
+    const btnPersAddPayment = document.getElementById('btn-pers-add-payment');
+
+    // Class Modal buttons
+    const closePersClassBtn = document.getElementById('close-pers-class-modal-btn');
+    const cancelPersClassBtn = document.getElementById('cancel-pers-class-btn');
+    const persClassBackdrop = document.getElementById('add-pers-class-backdrop');
+    const persClassForm = document.getElementById('pers-class-form');
+
+    // Payment Modal buttons
+    const closePersPaymentBtn = document.getElementById('close-pers-payment-modal-btn');
+    const cancelPersPaymentBtn = document.getElementById('cancel-pers-payment-btn');
+    const persPaymentBackdrop = document.getElementById('add-pers-payment-backdrop');
+    const persPaymentForm = document.getElementById('pers-payment-form');
+
+    // Delete Confirmation personalized modal buttons
+    const closePersDeleteBtn = document.getElementById('close-pers-delete-modal-btn');
+    const cancelPersDeleteBtn = document.getElementById('cancel-pers-delete-btn');
+    const confirmPersDeleteBtn = document.getElementById('confirm-pers-delete-btn');
+    const persDeleteBackdrop = document.getElementById('pers-delete-confirm-backdrop');
+
+    if (searchPersInput) {
+        searchPersInput.addEventListener('input', (e) => {
+            state.persSearchQuery = e.target.value.toLowerCase().trim();
+            renderPersParticipantsGrid();
+        });
+    }
+
+    if (openPersDrawerBtn) openPersDrawerBtn.addEventListener('click', openPersDrawer);
+    if (persEmptyStateAddBtn) persEmptyStateAddBtn.addEventListener('click', openPersDrawer);
+    if (closePersDrawerBtn) closePersDrawerBtn.addEventListener('click', closePersDrawer);
+    if (cancelPersDrawerBtn) cancelPersDrawerBtn.addEventListener('click', closePersDrawer);
+    if (persDrawerBackdrop) persDrawerBackdrop.addEventListener('click', closePersDrawer);
+
+    if (persDrawerForm) {
+        persDrawerForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            addPersParticipant();
+        });
+    }
+
+    if (btnBackToPersList) {
+        btnBackToPersList.addEventListener('click', () => {
+            state.selectedPersParticipantId = null;
+            renderPersView();
+        });
+    }
+
+    if (btnPersAddClass) btnPersAddClass.addEventListener('click', openPersClassModal);
+    if (closePersClassBtn) closePersClassBtn.addEventListener('click', closePersClassModal);
+    if (cancelPersClassBtn) cancelPersClassBtn.addEventListener('click', closePersClassModal);
+    if (persClassBackdrop) persClassBackdrop.addEventListener('click', closePersClassModal);
+    if (persClassForm) {
+        persClassForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            addPersClass();
+        });
+    }
+
+    if (btnPersAddPayment) btnPersAddPayment.addEventListener('click', openPersPaymentModal);
+    if (closePersPaymentBtn) closePersPaymentBtn.addEventListener('click', closePersPaymentModal);
+    if (cancelPersPaymentBtn) cancelPersPaymentBtn.addEventListener('click', closePersPaymentModal);
+    if (persPaymentBackdrop) persPaymentBackdrop.addEventListener('click', closePersPaymentModal);
+    if (persPaymentForm) {
+        persPaymentForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            addPersPayment();
+        });
+    }
+
+    // Notes Modal event listeners
+    const btnPersAddNote = document.getElementById('btn-pers-add-note');
+    const closePersNoteBtn = document.getElementById('close-pers-note-modal-btn');
+    const cancelPersNoteBtn = document.getElementById('cancel-pers-note-btn');
+    const persNoteBackdrop = document.getElementById('add-pers-note-backdrop');
+    const persNoteForm = document.getElementById('pers-note-form');
+
+    if (btnPersAddNote) btnPersAddNote.addEventListener('click', openPersNoteModal);
+    if (closePersNoteBtn) closePersNoteBtn.addEventListener('click', closePersNoteModal);
+    if (cancelPersNoteBtn) cancelPersNoteBtn.addEventListener('click', closePersNoteModal);
+    if (persNoteBackdrop) persNoteBackdrop.addEventListener('click', closePersNoteModal);
+    if (persNoteForm) {
+        persNoteForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            addPersNote();
+        });
+    }
+
+    if (closePersDeleteBtn) closePersDeleteBtn.addEventListener('click', closePersDeleteModal);
+    if (cancelPersDeleteBtn) cancelPersDeleteBtn.addEventListener('click', closePersDeleteModal);
+    if (persDeleteBackdrop) persDeleteBackdrop.addEventListener('click', closePersDeleteModal);
+    if (confirmPersDeleteBtn) confirmPersDeleteBtn.addEventListener('click', confirmPersDelete);
+
+    // Global Key Bindings (Escape closing)
+    window.addEventListener('keydown', (e) => {
+        const drawer = document.getElementById('add-participant-drawer');
+        const deleteOptionsModal = document.getElementById('delete-options-modal');
+        const deleteModal = document.getElementById('delete-confirm-modal');
+        
+        // Personalized dialogs
+        const persDrawer = document.getElementById('add-pers-participant-drawer');
+        const persClassModal = document.getElementById('add-pers-class-modal');
+        const persPaymentModal = document.getElementById('add-pers-payment-modal');
+        const persNoteModal = document.getElementById('add-pers-note-modal');
+        const persDeleteModal = document.getElementById('pers-delete-confirm-modal');
+
+        if (e.key === 'Escape') {
+            if (drawer && !drawer.classList.contains('hidden')) closeDrawer();
+            if (deleteOptionsModal && !deleteOptionsModal.classList.contains('hidden')) closeDeleteOptionsModal();
+            if (deleteModal && !deleteModal.classList.contains('hidden')) closeDeleteModal();
+            
+            if (persDrawer && !persDrawer.classList.contains('hidden')) closePersDrawer();
+            if (persClassModal && !persClassModal.classList.contains('hidden')) closePersClassModal();
+            if (persPaymentModal && !persPaymentModal.classList.contains('hidden')) closePersPaymentModal();
+            if (persNoteModal && !persNoteModal.classList.contains('hidden')) closePersNoteModal();
+            if (persDeleteModal && !persDeleteModal.classList.contains('hidden')) closePersDeleteModal();
+        }
+    });
 }
 
 /* ==========================================================================
@@ -650,15 +873,27 @@ function confirmDeleteParticipant() {
    Rendering & DOM Updating
    ========================================================================== */
 function renderApp() {
-    const thursdays = getThursdaysInMonth(state.currentMonth, state.currentYear);
+    // Hide all views first
+    document.getElementById('main-menu-view').classList.add('hidden');
+    document.getElementById('general-reinforcements-view').classList.add('hidden');
+    document.getElementById('personalized-reinforcements-view').classList.add('hidden');
     
-    // Update heading displaying the month name
-    const monthDisplay = document.getElementById('current-month-display');
-    monthDisplay.textContent = `Refuerzos de ${getMonthName(state.currentMonth)} ${state.currentYear}`;
-    
-    renderHeaders(thursdays);
-    renderRowsOnly();
-    renderStats(thursdays);
+    if (state.currentView === 'menu') {
+        document.getElementById('main-menu-view').classList.remove('hidden');
+    } else if (state.currentView === 'general') {
+        document.getElementById('general-reinforcements-view').classList.remove('hidden');
+        
+        const thursdays = getThursdaysInMonth(state.currentMonth, state.currentYear);
+        const monthDisplay = document.getElementById('current-month-display');
+        monthDisplay.textContent = `Refuerzos de ${getMonthName(state.currentMonth)} ${state.currentYear}`;
+        
+        renderHeaders(thursdays);
+        renderRowsOnly();
+        renderStats(thursdays);
+    } else if (state.currentView === 'personalized') {
+        document.getElementById('personalized-reinforcements-view').classList.remove('hidden');
+        renderPersView();
+    }
 }
 
 function renderHeaders(thursdays) {
@@ -1004,3 +1239,767 @@ function showToast(message, type = 'success') {
         toast.classList.remove('show');
     }, 3000);
 }
+
+/* ==========================================================================
+   Refuerzos Personalizados - Logic Operations
+   ========================================================================== */
+
+function renderPersView() {
+    const listSubview = document.getElementById('pers-list-subview');
+    const detailSubview = document.getElementById('pers-detail-subview');
+    
+    // Update sidebar counts
+    const totalPersEl = document.getElementById('pers-total-participants-stat');
+    if (totalPersEl) {
+        totalPersEl.textContent = state.persParticipants.length;
+    }
+
+    if (state.selectedPersParticipantId === null) {
+        // Show List subview A
+        listSubview.classList.remove('hidden');
+        detailSubview.classList.add('hidden');
+        renderPersParticipantsGrid();
+    } else {
+        // Show Detail subview B
+        listSubview.classList.add('hidden');
+        detailSubview.classList.remove('hidden');
+        renderPersParticipantDetail();
+    }
+}
+
+function renderPersParticipantsGrid() {
+    const grid = document.getElementById('pers-participants-grid');
+    const emptyState = document.getElementById('pers-empty-state');
+    
+    if (!grid) return;
+    grid.innerHTML = '';
+
+    // Filter participants by search query
+    const filtered = state.persParticipants.filter(p => 
+        p.name.toLowerCase().includes(state.persSearchQuery)
+    );
+
+    // Sort alphabetically
+    filtered.sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
+
+    if (state.persParticipants.length === 0) {
+        grid.classList.add('hidden');
+        emptyState.classList.remove('hidden');
+        emptyState.querySelector('h4').textContent = 'No hay alumnos personalizados';
+        emptyState.querySelector('p').textContent = 'Agrega un nuevo participante para registrar asistencia y cobros.';
+        return;
+    }
+
+    if (filtered.length === 0 && state.persSearchQuery !== '') {
+        grid.classList.remove('hidden');
+        emptyState.classList.add('hidden');
+        grid.innerHTML = `<div class="text-center text-muted" style="grid-column: 1 / -1; padding: 40px;">No se encontraron participantes que coincidan con la búsqueda</div>`;
+        return;
+    }
+
+    grid.classList.remove('hidden');
+    emptyState.classList.add('hidden');
+
+    filtered.forEach(p => {
+        const card = document.createElement('div');
+        card.className = 'pers-card animate-slide-up';
+        
+        // Calculate student financial standings
+        const classes = state.persClasses[p.id] || [];
+        const payments = state.persPayments[p.id] || [];
+
+        const totalCost = classes.reduce((sum, c) => sum + (Number(c.price) || 0), 0);
+        const totalPaid = payments.reduce((sum, pay) => sum + (Number(pay.amount) || 0), 0);
+        const remaining = totalCost - totalPaid;
+
+        const firstLetter = p.name.trim().charAt(0).toUpperCase();
+
+        card.innerHTML = `
+            <div class="pers-card-header">
+                <div class="pers-card-avatar">${firstLetter}</div>
+                <div class="pers-card-info">
+                    <span class="pers-card-name" title="${p.name}">${p.name}</span>
+                    <span class="pers-card-label">Alumno Personalizado</span>
+                </div>
+            </div>
+            <div class="pers-card-stats">
+                <div class="pers-stat-item">
+                    <span class="pers-stat-label">Clases registradas</span>
+                    <span class="pers-stat-value">${classes.length}</span>
+                </div>
+                <div class="pers-stat-item">
+                    <span class="pers-stat-label">Estado Financiero</span>
+                    <span class="pers-stat-value ${remaining > 0 ? 'debt' : 'clear'}">
+                        ${remaining > 0 ? `$${remaining.toLocaleString('es-ES')} pendiente` : 'Al día'}
+                    </span>
+                </div>
+            </div>
+            <div class="pers-card-actions">
+                <button class="btn-action btn-action-delete" title="Eliminar participante" onclick="event.stopPropagation(); openPersDeleteModal('${p.id}', 'participant');">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+                </button>
+            </div>
+        `;
+
+        // Card navigation
+        card.addEventListener('click', () => {
+            state.selectedPersParticipantId = p.id;
+            renderPersView();
+        });
+
+        grid.appendChild(card);
+    });
+}
+
+function renderPersParticipantDetail() {
+    const studentId = state.selectedPersParticipantId;
+    if (!studentId) return;
+
+    const student = state.persParticipants.find(p => p.id === studentId);
+    if (!student) return;
+
+    // Display student name
+    const titleEl = document.getElementById('pers-detail-name');
+    if (titleEl) titleEl.textContent = student.name;
+
+    const classes = state.persClasses[studentId] || [];
+    const payments = state.persPayments[studentId] || [];
+
+    // Financial balance calculations
+    const totalCost = classes.reduce((sum, c) => sum + (Number(c.price) || 0), 0);
+    const totalPaid = payments.reduce((sum, pay) => sum + (Number(pay.amount) || 0), 0);
+    const remaining = totalCost - totalPaid;
+
+    // Display values formatted beautifully
+    document.getElementById('pers-stat-total-cost').textContent = `$${totalCost.toLocaleString('es-ES')}`;
+    document.getElementById('pers-stat-total-paid').textContent = `$${totalPaid.toLocaleString('es-ES')}`;
+    document.getElementById('pers-stat-remaining').textContent = `$${remaining.toLocaleString('es-ES')}`;
+
+    // Glow outstanding status color according to positive or negative debt
+    const pendingCard = document.getElementById('pers-stat-pending-card');
+    if (pendingCard) {
+        if (remaining > 0) {
+            pendingCard.className = 'balance-card total-pending outstanding';
+            pendingCard.querySelector('.balance-label').textContent = 'Falta por pagar';
+        } else {
+            pendingCard.className = 'balance-card total-pending no-outstanding';
+            pendingCard.querySelector('.balance-label').textContent = 'Saldo a Favor / Al día';
+        }
+    }
+
+    // === Populate Classes List ===
+    const classesTbody = document.getElementById('pers-classes-tbody');
+    const classesEmpty = document.getElementById('pers-classes-empty');
+    if (classesTbody) {
+        classesTbody.innerHTML = '';
+        if (classes.length === 0) {
+            classesEmpty.classList.remove('hidden');
+        } else {
+            classesEmpty.classList.add('hidden');
+            
+            // Sort classes by date descending
+            const sortedClasses = [...classes].sort((a,b) => b.date.localeCompare(a.date));
+            
+            sortedClasses.forEach(c => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td><strong>${c.day}</strong></td>
+                    <td>${c.date.split('-').reverse().join('/')}</td>
+                    <td>${c.startTime} - ${c.endTime}</td>
+                    <td class="text-right"><strong>$${Number(c.price).toLocaleString('es-ES')}</strong></td>
+                    <td class="text-center">
+                        <label class="attendance-checkbox-label">
+                            <input type="checkbox" ${c.paid ? 'checked' : ''} onchange="togglePersClassPayment('${studentId}', '${c.id}', this.checked)">
+                            <span class="checkbox-custom"></span>
+                        </label>
+                    </td>
+                    <td class="text-center">
+                        <div class="actions-cell" style="justify-content: center;">
+                            <button class="btn-action btn-action-delete" title="Eliminar clase" onclick="openPersDeleteModal('${c.id}', 'class');">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                            </button>
+                        </div>
+                    </td>
+                `;
+                classesTbody.appendChild(tr);
+            });
+        }
+    }
+
+    // === Populate Payments List ===
+    const paymentsTbody = document.getElementById('pers-payments-tbody');
+    const paymentsEmpty = document.getElementById('pers-payments-empty');
+    if (paymentsTbody) {
+        paymentsTbody.innerHTML = '';
+        if (payments.length === 0) {
+            paymentsEmpty.classList.remove('hidden');
+        } else {
+            paymentsEmpty.classList.add('hidden');
+            
+            // Sort payments by date descending
+            const sortedPayments = [...payments].sort((a,b) => b.date.localeCompare(a.date));
+            
+            sortedPayments.forEach(pay => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td><strong>${pay.date.split('-').reverse().join('/')}</strong></td>
+                    <td class="text-right" style="color: var(--success-color);"><strong>$${Number(pay.amount).toLocaleString('es-ES')}</strong></td>
+                    <td class="text-center">
+                        <div class="actions-cell" style="justify-content: center;">
+                            <button class="btn-action btn-action-delete" title="Eliminar pago" onclick="openPersDeleteModal('${pay.id}', 'payment');">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                            </button>
+                        </div>
+                    </td>
+                `;
+                paymentsTbody.appendChild(tr);
+            });
+        }
+    }
+
+    // Render notes
+    renderPersNotes(studentId);
+}
+
+/* === Add Student Dialog === */
+function openPersDrawer() {
+    const drawer = document.getElementById('add-pers-participant-drawer');
+    const backdrop = document.getElementById('add-pers-participant-drawer-backdrop');
+    const input = document.getElementById('drawer-pers-participant-name');
+    
+    if (drawer && backdrop) {
+        drawer.classList.remove('hidden');
+        backdrop.classList.remove('hidden');
+        
+        void drawer.offsetWidth;
+        void backdrop.offsetWidth;
+        
+        drawer.classList.add('show');
+        backdrop.classList.add('show');
+        document.body.classList.add('drawer-open');
+        
+        setTimeout(() => { if (input) input.focus(); }, 200);
+    }
+}
+
+function closePersDrawer() {
+    const drawer = document.getElementById('add-pers-participant-drawer');
+    const backdrop = document.getElementById('add-pers-participant-drawer-backdrop');
+    const input = document.getElementById('drawer-pers-participant-name');
+    
+    if (drawer && backdrop) {
+        drawer.classList.remove('show');
+        backdrop.classList.remove('show');
+        document.body.classList.remove('drawer-open');
+        
+        setTimeout(() => {
+            drawer.classList.add('hidden');
+            backdrop.classList.add('hidden');
+            if (input) input.value = '';
+        }, 300);
+    }
+}
+
+function addPersParticipant() {
+    const input = document.getElementById('drawer-pers-participant-name');
+    const name = input ? input.value.trim() : '';
+
+    if (!name) return;
+
+    // Check duplicate
+    const isDuplicate = state.persParticipants.some(p => p.name.toLowerCase() === name.toLowerCase());
+    if (isDuplicate) {
+        showToast('Este alumno ya está registrado', 'danger');
+        return;
+    }
+
+    const newId = 'pers_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+    const newParticipant = {
+        id: newId,
+        name: name,
+        createdAt: Date.now()
+    };
+
+    state.persParticipants.push(newParticipant);
+    state.persClasses[newId] = [];
+    state.persPayments[newId] = [];
+
+    savePersToLocalStorage();
+    closePersDrawer();
+    renderPersView();
+    showToast(`Alumno "${name}" agregado exitosamente`);
+}
+
+/* === Add Class Session Dialog === */
+function openPersClassModal() {
+    const modal = document.getElementById('add-pers-class-modal');
+    const backdrop = document.getElementById('add-pers-class-backdrop');
+    
+    // Set default fields values
+    const dateInput = document.getElementById('pers-class-date');
+    const startInput = document.getElementById('pers-class-start-time');
+    const endInput = document.getElementById('pers-class-end-time');
+    const priceInput = document.getElementById('pers-class-price');
+    const paidInput = document.getElementById('pers-class-paid-checkbox');
+
+    if (dateInput) {
+        const today = new Date();
+        const y = today.getFullYear();
+        const m = String(today.getMonth() + 1).padStart(2, '0');
+        const d = String(today.getDate()).padStart(2, '0');
+        dateInput.value = `${y}-${m}-${d}`;
+    }
+
+    if (startInput) startInput.value = "16:00";
+    if (endInput) endInput.value = "17:00";
+    if (priceInput) priceInput.value = "";
+    if (paidInput) paidInput.checked = false;
+
+    if (modal && backdrop) {
+        modal.classList.remove('hidden');
+        backdrop.classList.remove('hidden');
+        
+        void modal.offsetWidth;
+        void backdrop.offsetWidth;
+        
+        modal.classList.add('show');
+        backdrop.classList.add('show');
+        document.body.classList.add('modal-open');
+    }
+}
+
+function closePersClassModal() {
+    const modal = document.getElementById('add-pers-class-modal');
+    const backdrop = document.getElementById('add-pers-class-backdrop');
+    
+    if (modal && backdrop) {
+        modal.classList.remove('show');
+        backdrop.classList.remove('show');
+        document.body.classList.remove('modal-open');
+        
+        setTimeout(() => {
+            modal.classList.add('hidden');
+            backdrop.classList.add('hidden');
+        }, 300);
+    }
+}
+
+function addPersClass() {
+    const studentId = state.selectedPersParticipantId;
+    if (!studentId) return;
+
+    const day = document.getElementById('pers-class-day').value;
+    const date = document.getElementById('pers-class-date').value;
+    const startTime = document.getElementById('pers-class-start-time').value;
+    const endTime = document.getElementById('pers-class-end-time').value;
+    const price = Number(document.getElementById('pers-class-price').value) || 0;
+    const isPaid = document.getElementById('pers-class-paid-checkbox').checked;
+
+    if (!date || !startTime || !endTime) {
+        showToast('Por favor completa todos los campos requeridos', 'danger');
+        return;
+    }
+
+    const classId = 'class_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+    let paymentId = null;
+
+    if (isPaid && price > 0) {
+        paymentId = 'pay_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+        const newPayment = {
+            id: paymentId,
+            date: date,
+            amount: price
+        };
+        if (!state.persPayments[studentId]) state.persPayments[studentId] = [];
+        state.persPayments[studentId].push(newPayment);
+    }
+
+    const newClass = {
+        id: classId,
+        day: day,
+        date: date,
+        startTime: startTime,
+        endTime: endTime,
+        price: price,
+        paid: isPaid,
+        paymentId: paymentId
+    };
+
+    if (!state.persClasses[studentId]) state.persClasses[studentId] = [];
+    state.persClasses[studentId].push(newClass);
+
+    savePersToLocalStorage();
+    closePersClassModal();
+    renderPersParticipantDetail();
+    showToast('Clase registrada correctamente');
+}
+
+function togglePersClassPayment(studentId, classId, isChecked) {
+    const classes = state.persClasses[studentId] || [];
+    const classObj = classes.find(c => c.id === classId);
+    if (!classObj) return;
+
+    classObj.paid = isChecked;
+
+    if (isChecked) {
+        // Automatically create linked payment
+        const paymentId = 'pay_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+        const newPayment = {
+            id: paymentId,
+            date: classObj.date,
+            amount: classObj.price
+        };
+        if (!state.persPayments[studentId]) state.persPayments[studentId] = [];
+        state.persPayments[studentId].push(newPayment);
+        classObj.paymentId = paymentId;
+        showToast('Pago registrado y enlazado automáticamente');
+    } else {
+        // Delete linked payment
+        if (classObj.paymentId) {
+            state.persPayments[studentId] = (state.persPayments[studentId] || []).filter(pay => pay.id !== classObj.paymentId);
+            classObj.paymentId = null;
+            showToast('Pago desvinculado y retirado del historial');
+        }
+    }
+
+    savePersToLocalStorage();
+    renderPersParticipantDetail();
+}
+
+/* === Add Payment manual Dialog === */
+function openPersPaymentModal() {
+    const modal = document.getElementById('add-pers-payment-modal');
+    const backdrop = document.getElementById('add-pers-payment-backdrop');
+    
+    const dateInput = document.getElementById('pers-payment-date');
+    const amountInput = document.getElementById('pers-payment-amount');
+
+    if (dateInput) {
+        const today = new Date();
+        const y = today.getFullYear();
+        const m = String(today.getMonth() + 1).padStart(2, '0');
+        const d = String(today.getDate()).padStart(2, '0');
+        dateInput.value = `${y}-${m}-${d}`;
+    }
+
+    if (amountInput) amountInput.value = "";
+
+    if (modal && backdrop) {
+        modal.classList.remove('hidden');
+        backdrop.classList.remove('hidden');
+        
+        void modal.offsetWidth;
+        void backdrop.offsetWidth;
+        
+        modal.classList.add('show');
+        backdrop.classList.add('show');
+        document.body.classList.add('modal-open');
+    }
+}
+
+function closePersPaymentModal() {
+    const modal = document.getElementById('add-pers-payment-modal');
+    const backdrop = document.getElementById('add-pers-payment-backdrop');
+    
+    if (modal && backdrop) {
+        modal.classList.remove('show');
+        backdrop.classList.remove('show');
+        document.body.classList.remove('modal-open');
+        
+        setTimeout(() => {
+            modal.classList.add('hidden');
+            backdrop.classList.add('hidden');
+        }, 300);
+    }
+}
+
+function addPersPayment() {
+    const studentId = state.selectedPersParticipantId;
+    if (!studentId) return;
+
+    const date = document.getElementById('pers-payment-date').value;
+    const amount = Number(document.getElementById('pers-payment-amount').value) || 0;
+
+    if (!date || amount <= 0) {
+        showToast('Completa los campos con valores válidos', 'danger');
+        return;
+    }
+
+    const paymentId = 'pay_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+    const newPayment = {
+        id: paymentId,
+        date: date,
+        amount: amount
+    };
+
+    if (!state.persPayments[studentId]) state.persPayments[studentId] = [];
+    state.persPayments[studentId].push(newPayment);
+
+    savePersToLocalStorage();
+    closePersPaymentModal();
+    renderPersParticipantDetail();
+    showToast(`Pago de $${amount.toLocaleString('es-ES')} registrado`);
+}
+
+/* === Add Note Dialog & Render Functions === */
+function openPersNoteModal() {
+    const modal = document.getElementById('add-pers-note-modal');
+    const backdrop = document.getElementById('add-pers-note-backdrop');
+    
+    // Set default fields values
+    const dateInput = document.getElementById('pers-note-date');
+    const textInput = document.getElementById('pers-note-text');
+
+    if (dateInput) {
+        const today = new Date();
+        const y = today.getFullYear();
+        const m = String(today.getMonth() + 1).padStart(2, '0');
+        const d = String(today.getDate()).padStart(2, '0');
+        dateInput.value = `${y}-${m}-${d}`;
+    }
+
+    if (textInput) textInput.value = "";
+
+    if (modal && backdrop) {
+        modal.classList.remove('hidden');
+        backdrop.classList.remove('hidden');
+        
+        void modal.offsetWidth;
+        void backdrop.offsetWidth;
+        
+        modal.classList.add('show');
+        backdrop.classList.add('show');
+        document.body.classList.add('modal-open');
+    }
+}
+
+function closePersNoteModal() {
+    const modal = document.getElementById('add-pers-note-modal');
+    const backdrop = document.getElementById('add-pers-note-backdrop');
+    
+    if (modal && backdrop) {
+        modal.classList.remove('show');
+        backdrop.classList.remove('show');
+        document.body.classList.remove('modal-open');
+        
+        setTimeout(() => {
+            modal.classList.add('hidden');
+            backdrop.classList.add('hidden');
+        }, 300);
+    }
+}
+
+function addPersNote() {
+    const studentId = state.selectedPersParticipantId;
+    if (!studentId) return;
+
+    const date = document.getElementById('pers-note-date').value;
+    const text = document.getElementById('pers-note-text').value.trim();
+
+    if (!date || !text) {
+        showToast('Por favor completa todos los campos', 'danger');
+        return;
+    }
+
+    const noteId = 'note_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+    const newNote = {
+        id: noteId,
+        date: date,
+        text: text
+    };
+
+    if (!state.persNotes[studentId]) state.persNotes[studentId] = [];
+    state.persNotes[studentId].push(newNote);
+
+    savePersToLocalStorage();
+    closePersNoteModal();
+    renderPersParticipantDetail();
+    showToast('Nota registrada correctamente');
+}
+
+function renderPersNotes(studentId) {
+    const notesContainer = document.getElementById('pers-notes-container');
+    const notesEmpty = document.getElementById('pers-notes-empty');
+    if (!notesContainer) return;
+
+    notesContainer.innerHTML = '';
+    const notes = state.persNotes[studentId] || [];
+
+    if (notes.length === 0) {
+        notesEmpty.classList.remove('hidden');
+    } else {
+        notesEmpty.classList.add('hidden');
+        
+        // Sort notes by date descending
+        const sortedNotes = [...notes].sort((a, b) => b.date.localeCompare(a.date));
+        
+        sortedNotes.forEach(note => {
+            const noteItem = document.createElement('div');
+            noteItem.className = 'note-item animate-slide-up';
+            noteItem.innerHTML = `
+                <div class="note-item-header">
+                    <span class="note-item-date">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                        ${note.date.split('-').reverse().join('/')}
+                    </span>
+                    <button class="btn-action btn-action-delete" title="Eliminar nota" onclick="openPersDeleteModal('${note.id}', 'note');">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                    </button>
+                </div>
+                <div class="note-item-content">${escapeHTML(note.text)}</div>
+            `;
+            notesContainer.appendChild(noteItem);
+        });
+    }
+}
+
+function escapeHTML(str) {
+    return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+/* === Deletion Personalized Modals === */
+function openPersDeleteModal(id, type) {
+    state.deletingPersId = id;
+    state.deletingPersType = type;
+
+    const confirmTextEl = document.getElementById('pers-delete-confirm-text');
+    if (confirmTextEl) {
+        if (type === 'participant') {
+            const student = state.persParticipants.find(p => p.id === id);
+            confirmTextEl.innerHTML = `¿Seguro que deseas eliminar al alumno <strong>${student ? student.name : ''}</strong> de forma permanente? Se borrarán todas sus clases y pagos.`;
+        } else if (type === 'class') {
+            confirmTextEl.innerHTML = `¿Seguro que deseas eliminar esta clase? Esto desvinculará y borrará el pago si estaba marcado como pagada.`;
+        } else if (type === 'payment') {
+            confirmTextEl.innerHTML = `¿Seguro que deseas eliminar este registro de pago? Se desmarcará la confirmación de pago de la clase vinculada.`;
+        } else if (type === 'note') {
+            confirmTextEl.innerHTML = `¿Seguro que deseas eliminar esta nota de seguimiento? Esta acción no se puede deshacer.`;
+        }
+    }
+
+    const modal = document.getElementById('pers-delete-confirm-modal');
+    const backdrop = document.getElementById('pers-delete-confirm-backdrop');
+    
+    if (modal && backdrop) {
+        modal.classList.remove('hidden');
+        backdrop.classList.remove('hidden');
+        
+        void modal.offsetWidth;
+        void backdrop.offsetWidth;
+        
+        modal.classList.add('show');
+        backdrop.classList.add('show');
+        document.body.classList.add('modal-open');
+    }
+}
+
+function closePersDeleteModal() {
+    const modal = document.getElementById('pers-delete-confirm-modal');
+    const backdrop = document.getElementById('pers-delete-confirm-backdrop');
+    
+    if (modal && backdrop) {
+        modal.classList.remove('show');
+        backdrop.classList.remove('show');
+        document.body.classList.remove('modal-open');
+        
+        setTimeout(() => {
+            modal.classList.add('hidden');
+            backdrop.classList.add('hidden');
+            state.deletingPersId = null;
+            state.deletingPersType = null;
+        }, 300);
+    }
+}
+
+function confirmPersDelete() {
+    const id = state.deletingPersId;
+    const type = state.deletingPersType;
+    const studentId = state.selectedPersParticipantId;
+
+    if (!id || !type) return;
+
+    if (type === 'participant') {
+        // Full delete student
+        const student = state.persParticipants.find(p => p.id === id);
+        const name = student ? student.name : '';
+
+        state.persParticipants = state.persParticipants.filter(p => p.id !== id);
+        delete state.persClasses[id];
+        delete state.persPayments[id];
+        delete state.persNotes[id];
+
+        savePersToLocalStorage();
+        closePersDeleteModal();
+        
+        if (state.selectedPersParticipantId === id) {
+            state.selectedPersParticipantId = null;
+        }
+        renderPersView();
+        showToast(`Registro de "${name}" eliminado permanentemente`, 'danger');
+        
+    } else if (type === 'class') {
+        // Delete class session
+        const classes = state.persClasses[studentId] || [];
+        const classObj = classes.find(c => c.id === id);
+        
+        if (classObj) {
+            // Delete linked payment if exists
+            if (classObj.paymentId) {
+                state.persPayments[studentId] = (state.persPayments[studentId] || []).filter(pay => pay.id !== classObj.paymentId);
+            }
+            // Remove class
+            state.persClasses[studentId] = classes.filter(c => c.id !== id);
+            
+            savePersToLocalStorage();
+            closePersDeleteModal();
+            renderPersParticipantDetail();
+            showToast('Clase eliminada del registro', 'danger');
+        }
+        
+    } else if (type === 'payment') {
+        // Delete payment registry
+        const payments = state.persPayments[studentId] || [];
+        const payObj = payments.find(pay => pay.id === id);
+
+        if (payObj) {
+            // Uncheck linked classes if any
+            const classes = state.persClasses[studentId] || [];
+            classes.forEach(c => {
+                if (c.paymentId === id) {
+                    c.paid = false;
+                    c.paymentId = null;
+                }
+            });
+
+            // Remove payment
+            state.persPayments[studentId] = payments.filter(pay => pay.id !== id);
+
+            savePersToLocalStorage();
+            closePersDeleteModal();
+            renderPersParticipantDetail();
+            showToast('Pago eliminado correctamente', 'danger');
+        }
+    } else if (type === 'note') {
+        // Delete note
+        const notes = state.persNotes[studentId] || [];
+        state.persNotes[studentId] = notes.filter(n => n.id !== id);
+
+        savePersToLocalStorage();
+        closePersDeleteModal();
+        renderPersParticipantDetail();
+        showToast('Nota eliminada correctamente', 'danger');
+    }
+}
+
+// Initialize Application
+document.addEventListener('DOMContentLoaded', () => {
+    initTheme();
+    loadFromLocalStorage();
+    initSelectors();
+    initEventListeners();
+    renderApp();
+});
