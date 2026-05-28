@@ -421,6 +421,17 @@ select {
     color: #ffffff;
 }
 
+.btn-warning {
+    background-color: var(--warning-light);
+    color: var(--warning-color);
+    padding: 8px 12px;
+}
+.btn-warning:hover {
+    background-color: var(--warning-color);
+    color: #ffffff;
+}
+
+
 .btn-icon {
     background: transparent;
     border: 1px solid var(--border-color);

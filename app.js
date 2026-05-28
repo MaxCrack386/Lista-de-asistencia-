@@ -309,6 +309,7 @@ function initEventListeners() {
     const closeDeleteOptionsBtn = document.getElementById('close-delete-options-btn');
     const deleteOptionCancelBtn = document.getElementById('delete-option-cancel-btn');
     const deleteOptionMonthBtn = document.getElementById('delete-option-month-btn');
+    const deleteOptionFutureBtn = document.getElementById('delete-option-future-btn');
     const deleteOptionAllBtn = document.getElementById('delete-option-all-btn');
     const deleteOptionsBackdrop = document.getElementById('delete-options-backdrop');
 
@@ -316,7 +317,9 @@ function initEventListeners() {
     if (deleteOptionCancelBtn) deleteOptionCancelBtn.addEventListener('click', closeDeleteOptionsModal);
     if (deleteOptionsBackdrop) deleteOptionsBackdrop.addEventListener('click', closeDeleteOptionsModal);
     if (deleteOptionMonthBtn) deleteOptionMonthBtn.addEventListener('click', handleDeleteOptionMonth);
+    if (deleteOptionFutureBtn) deleteOptionFutureBtn.addEventListener('click', handleDeleteOptionFuture);
     if (deleteOptionAllBtn) deleteOptionAllBtn.addEventListener('click', handleDeleteOptionAll);
+
     
     if (drawerForm) {
         drawerForm.addEventListener('submit', (e) => {
@@ -765,6 +768,34 @@ function handleDeleteOptionMonth() {
     showDeleteConfirmModal();
 }
 
+function handleDeleteOptionFuture() {
+    const id = state.deletingParticipantId;
+    if (!id) return;
+    
+    const participant = state.participants.find(p => p.id === id);
+    if (!participant) return;
+    
+    state.deleteType = 'future';
+    
+    // Close options modal
+    closeDeleteOptionsModal();
+    
+    // Customize confirmation modal
+    const titleEl = document.getElementById('delete-confirm-title');
+    const textEl = document.getElementById('delete-confirm-text');
+    const nameEl = document.getElementById('delete-participant-name');
+    
+    if (titleEl) titleEl.textContent = 'Confirmar Eliminación - Este y futuros';
+    if (textEl) {
+        textEl.innerHTML = `¿Seguro que quieres ocultar y eliminar el registro de <strong>${participant.name}</strong> para <strong>este mes y todos los meses futuros</strong>? (Sus datos de meses anteriores quedarán intactos)`;
+    } else if (nameEl) {
+        nameEl.textContent = participant.name;
+    }
+    
+    // Open confirmation modal
+    showDeleteConfirmModal();
+}
+
 function handleDeleteOptionAll() {
     const id = state.deletingParticipantId;
     if (!id) return;
@@ -860,6 +891,29 @@ function confirmDeleteParticipant() {
         closeDeleteModal();
         renderApp();
         showToast(`Registro de "${name}" eliminado solo para este mes`, 'danger');
+    } else if (state.deleteType === 'future') {
+        // Set end month and year
+        participant.endMonth = state.currentMonth;
+        participant.endYear = state.currentYear;
+        
+        // Clear all attendance records for current and future months
+        if (state.attendance[id]) {
+            Object.keys(state.attendance[id]).forEach(dateStr => {
+                const parts = dateStr.split('-');
+                if (parts.length === 3) {
+                    const y = parseInt(parts[0], 10);
+                    const m = parseInt(parts[1], 10) - 1;
+                    if (isMonthAfterOrEqual(m, y, state.currentMonth, state.currentYear)) {
+                        delete state.attendance[id][dateStr];
+                    }
+                }
+            });
+        }
+        
+        saveToLocalStorage();
+        closeDeleteModal();
+        renderApp();
+        showToast(`Registro de "${name}" eliminado para este mes y meses futuros`, 'danger');
     } else {
         // Full permanent deletion from all months
         state.participants = state.participants.filter(p => p.id !== id);
@@ -954,7 +1008,12 @@ function getFilteredParticipants() {
         const monthKey = `${state.currentYear}-${state.currentMonth}`;
         const isNotExcluded = !p.excludedMonths || !p.excludedMonths.includes(monthKey);
         
-        return matchesSearch && matchesGroup && isEligibleByStart && isNotExcluded;
+        // End month/year check (Este y futuros deletion)
+        const hasEnded = p.endYear !== undefined && p.endMonth !== undefined && 
+                         isMonthAfterOrEqual(state.currentMonth, state.currentYear, p.endMonth, p.endYear);
+        const isEligibleByEnd = !hasEnded;
+        
+        return matchesSearch && matchesGroup && isEligibleByStart && isNotExcluded && isEligibleByEnd;
     });
     return filtered.sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
 }
