@@ -12,6 +12,11 @@ let state = {
     editingParticipantId: null,
     deletingParticipantId: null,
     deleteType: null,
+    generalSubView: 'attendance', // 'attendance' | 'participants' | 'detail'
+    generalNotes: {},    // participantId -> array of note objects
+    selectedGeneralParticipantId: null,
+    generalSearchQuery: '',
+    editingGeneralNoteId: null,
     
     // SPA Router & Navigation State
     currentView: 'menu', // 'menu' | 'general' | 'personalized'
@@ -131,15 +136,18 @@ function loadFromLocalStorage() {
     // 1. Thursday General Attendance
     const storedParticipants = localStorage.getItem('asistencia_participants');
     const storedAttendance = localStorage.getItem('asistencia_records');
+    const storedGeneralNotes = localStorage.getItem('asistencia_general_notes');
     
     if (storedParticipants) {
         state.participants = JSON.parse(storedParticipants);
+        state.generalNotes = storedGeneralNotes ? JSON.parse(storedGeneralNotes) : {};
     } else {
         // Setup initial demo data if storage is completely empty
         state.participants = [...DEMO_PARTICIPANTS];
         const thursdays = getThursdaysInMonth(state.currentMonth, state.currentYear);
         setupDemoData(thursdays);
         state.attendance = {...DEMO_ATTENDANCE};
+        state.generalNotes = {};
         saveToLocalStorage();
     }
     
@@ -171,6 +179,7 @@ function loadFromLocalStorage() {
 function saveToLocalStorage() {
     localStorage.setItem('asistencia_participants', JSON.stringify(state.participants));
     localStorage.setItem('asistencia_records', JSON.stringify(state.attendance));
+    localStorage.setItem('asistencia_general_notes', JSON.stringify(state.generalNotes));
 }
 
 function savePersToLocalStorage() {
@@ -328,7 +337,76 @@ function initEventListeners() {
         });
     }
 
+    // General Reinforcements Subviews Navigation
+    const btnNavGeneralParticipants = document.getElementById('btn-nav-general-participants');
+    const btnNavGeneralGroups = document.getElementById('btn-nav-general-groups');
+    const btnNavGeneralAttendanceBack = document.getElementById('btn-nav-general-attendance-back');
+    const btnBackToGeneralParticipants = document.getElementById('btn-back-to-general-participants');
+    const searchGeneralParticipant = document.getElementById('search-general-participant');
+    const btnGeneralAddParticipantView = document.getElementById('btn-general-add-participant-view');
+    const btnGeneralAddNote = document.getElementById('btn-general-add-note');
+    const closeGeneralNoteBtn = document.getElementById('close-general-note-modal-btn');
+    const cancelGeneralNoteBtn = document.getElementById('cancel-general-note-btn');
+    const generalNoteBackdrop = document.getElementById('add-general-note-backdrop');
+    const generalNoteForm = document.getElementById('general-note-form');
+
+    if (btnNavGeneralParticipants) {
+        btnNavGeneralParticipants.addEventListener('click', () => {
+            state.generalSubView = 'participants';
+            renderApp();
+        });
+    }
+
+    if (btnNavGeneralGroups) {
+        btnNavGeneralGroups.addEventListener('click', () => {
+            state.generalSubView = 'groups';
+            renderApp();
+        });
+    }
+
+    if (btnNavGeneralAttendanceBack) {
+        btnNavGeneralAttendanceBack.addEventListener('click', () => {
+            state.generalSubView = 'attendance';
+            renderApp();
+        });
+    }
+
+    if (btnBackToGeneralParticipants) {
+        btnBackToGeneralParticipants.addEventListener('click', () => {
+            state.generalSubView = 'participants';
+            state.selectedGeneralParticipantId = null;
+            renderApp();
+        });
+    }
+
+    if (searchGeneralParticipant) {
+        searchGeneralParticipant.addEventListener('input', (e) => {
+            state.generalSearchQuery = e.target.value.toLowerCase().trim();
+            renderGeneralParticipantsGrid();
+        });
+    }
+
+    if (btnGeneralAddParticipantView) {
+        btnGeneralAddParticipantView.addEventListener('click', openDrawer);
+    }
+
+    if (btnGeneralAddNote) {
+        btnGeneralAddNote.addEventListener('click', openGeneralNoteModal);
+    }
+
+    if (closeGeneralNoteBtn) closeGeneralNoteBtn.addEventListener('click', closeGeneralNoteModal);
+    if (cancelGeneralNoteBtn) cancelGeneralNoteBtn.addEventListener('click', closeGeneralNoteModal);
+    if (generalNoteBackdrop) generalNoteBackdrop.addEventListener('click', closeGeneralNoteModal);
+
+    if (generalNoteForm) {
+        generalNoteForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            handleGeneralNoteSubmit();
+        });
+    }
+
     // === Refuerzos Personalizados Event Listeners ===
+
     const searchPersInput = document.getElementById('search-pers-participant');
     const openPersDrawerBtn = document.getElementById('open-pers-drawer-btn');
     const persEmptyStateAddBtn = document.getElementById('pers-empty-state-add-btn');
@@ -436,6 +514,7 @@ function initEventListeners() {
         const drawer = document.getElementById('add-participant-drawer');
         const deleteOptionsModal = document.getElementById('delete-options-modal');
         const deleteModal = document.getElementById('delete-confirm-modal');
+        const generalNoteModal = document.getElementById('add-general-note-modal');
         
         // Personalized dialogs
         const persDrawer = document.getElementById('add-pers-participant-drawer');
@@ -448,6 +527,7 @@ function initEventListeners() {
             if (drawer && !drawer.classList.contains('hidden')) closeDrawer();
             if (deleteOptionsModal && !deleteOptionsModal.classList.contains('hidden')) closeDeleteOptionsModal();
             if (deleteModal && !deleteModal.classList.contains('hidden')) closeDeleteModal();
+            if (generalNoteModal && !generalNoteModal.classList.contains('hidden')) closeGeneralNoteModal();
             
             if (persDrawer && !persDrawer.classList.contains('hidden')) closePersDrawer();
             if (persClassModal && !persClassModal.classList.contains('hidden')) closePersClassModal();
@@ -456,6 +536,7 @@ function initEventListeners() {
             if (persDeleteModal && !persDeleteModal.classList.contains('hidden')) closePersDeleteModal();
         }
     });
+
 }
 
 /* ==========================================================================
@@ -525,11 +606,37 @@ function addParticipant() {
     
     if (!name) return;
     
-    // Check duplicate
-    const isDuplicate = state.participants.some(p => p.name.toLowerCase() === name.toLowerCase());
-    if (isDuplicate) {
-        showToast('Este participante ya está registrado', 'danger');
-        return;
+    // Check duplicate / existing participant
+    const existing = state.participants.find(p => p.name.toLowerCase() === name.toLowerCase());
+    if (existing) {
+        if (existing.deletedFromDirectory || existing.hiddenFromAttendance) {
+            existing.deletedFromDirectory = false;
+            existing.hiddenFromAttendance = false;
+            existing.group = group;
+            existing.startMonth = state.currentMonth;
+            existing.startYear = state.currentYear;
+            
+            // Clean up exclusion flags for the current month if any
+            const monthKey = `${state.currentYear}-${state.currentMonth}`;
+            if (existing.excludedMonths) {
+                existing.excludedMonths = existing.excludedMonths.filter(m => m !== monthKey);
+            }
+            if (existing.endMonth !== undefined && existing.endYear !== undefined) {
+                delete existing.endMonth;
+                delete existing.endYear;
+            }
+            
+            saveToLocalStorage();
+            inputElement.value = '';
+            if (groupElement) groupElement.value = 'Grupo 1';
+            closeDrawer();
+            renderApp();
+            showToast(`Participante "${name}" re-activado correctamente`);
+            return;
+        } else {
+            showToast('Este participante ya está registrado', 'danger');
+            return;
+        }
     }
     
     const newId = 'part_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
@@ -679,7 +786,10 @@ function saveParticipantEdit() {
     if (!name) return;
     
     const isDuplicate = state.participants.some(p => 
-        p.id !== state.editingParticipantId && p.name.toLowerCase() === name.toLowerCase()
+        p.id !== state.editingParticipantId && 
+        !p.deletedFromDirectory && 
+        !p.hiddenFromAttendance && 
+        p.name.toLowerCase() === name.toLowerCase()
     );
     if (isDuplicate) {
         showToast('Ya existe un participante con este nombre', 'danger');
@@ -914,15 +1024,20 @@ function confirmDeleteParticipant() {
         closeDeleteModal();
         renderApp();
         showToast(`Registro de "${name}" eliminado para este mes y meses futuros`, 'danger');
-    } else {
-        // Full permanent deletion from all months
-        state.participants = state.participants.filter(p => p.id !== id);
-        delete state.attendance[id];
-        
+    } else if (state.deleteType === 'directory') {
+        // Remove participant from directory list only
+        participant.deletedFromDirectory = true;
         saveToLocalStorage();
         closeDeleteModal();
         renderApp();
-        showToast(`Registro de "${name}" eliminado de manera permanente`, 'danger');
+        showToast(`"${name}" eliminado de la lista de participantes`, 'danger');
+    } else {
+        // Hide participant from the attendance table entirely
+        participant.hiddenFromAttendance = true;
+        saveToLocalStorage();
+        closeDeleteModal();
+        renderApp();
+        showToast(`"${name}" ocultado de la lista de asistencia`, 'danger');
     }
 }
 
@@ -939,14 +1054,7 @@ function renderApp() {
         document.getElementById('main-menu-view').classList.remove('hidden');
     } else if (state.currentView === 'general') {
         document.getElementById('general-reinforcements-view').classList.remove('hidden');
-        
-        const thursdays = getThursdaysInMonth(state.currentMonth, state.currentYear);
-        const monthDisplay = document.getElementById('current-month-display');
-        monthDisplay.textContent = `Refuerzos de ${getMonthName(state.currentMonth)} ${state.currentYear}`;
-        
-        renderHeaders(thursdays);
-        renderRowsOnly();
-        renderStats(thursdays);
+        renderGeneralView();
     } else if (state.currentView === 'personalized') {
         document.getElementById('personalized-reinforcements-view').classList.remove('hidden');
         renderPersView();
@@ -1010,10 +1118,13 @@ function getFilteredParticipants() {
         
         // End month/year check (Este y futuros deletion)
         const hasEnded = p.endYear !== undefined && p.endMonth !== undefined && 
-                         isMonthAfterOrEqual(state.currentMonth, state.currentYear, p.endMonth, p.endYear);
+                          isMonthAfterOrEqual(state.currentMonth, state.currentYear, p.endMonth, p.endYear);
         const isEligibleByEnd = !hasEnded;
         
-        return matchesSearch && matchesGroup && isEligibleByStart && isNotExcluded && isEligibleByEnd;
+        // Hidden from attendance check
+        const isNotHidden = !p.hiddenFromAttendance;
+        
+        return matchesSearch && matchesGroup && isEligibleByStart && isNotExcluded && isEligibleByEnd && isNotHidden;
     });
     return filtered.sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
 }
@@ -1227,7 +1338,7 @@ function updateBadgeClasses(badge, current, total) {
 function renderStats(thursdays) {
     // Filter participants based on active group filter
     const activeParticipants = state.participants.filter(p => 
-        state.groupFilter === 'Todos' || (p.group || 'Grupo 1') === state.groupFilter
+        !p.hiddenFromAttendance && (state.groupFilter === 'Todos' || (p.group || 'Grupo 1') === state.groupFilter)
     );
     
     const totalParticipants = activeParticipants.length;
@@ -2358,6 +2469,445 @@ function confirmPersDelete() {
         savePersToLocalStorage();
         closePersDeleteModal();
         renderPersParticipantDetail();
+        showToast('Nota eliminada correctamente', 'danger');
+    }
+}
+
+/* === General Reinforcements Subviews & Notes Rendering === */
+function renderGeneralView() {
+    // Hide all general subviews first
+    document.getElementById('general-attendance-subview').classList.add('hidden');
+    document.getElementById('general-participants-subview').classList.add('hidden');
+    document.getElementById('general-participant-detail-subview').classList.add('hidden');
+    document.getElementById('general-groups-subview').classList.add('hidden');
+
+    const monthSelect = document.getElementById('month-select');
+    const openDrawerBtn = document.getElementById('open-drawer-btn');
+    const btnNavGeneralParticipants = document.getElementById('btn-nav-general-participants');
+    const btnNavGeneralGroups = document.getElementById('btn-nav-general-groups');
+    const btnNavGeneralAttendanceBack = document.getElementById('btn-nav-general-attendance-back');
+
+    if (state.generalSubView === 'attendance') {
+        document.getElementById('general-attendance-subview').classList.remove('hidden');
+        
+        // Show month/year selectors & add participant button in sidebar
+        if (monthSelect) monthSelect.closest('.sidebar-section').classList.remove('hidden');
+        if (openDrawerBtn) openDrawerBtn.classList.remove('hidden');
+        if (btnNavGeneralParticipants) btnNavGeneralParticipants.classList.remove('hidden');
+        if (btnNavGeneralGroups) btnNavGeneralGroups.classList.remove('hidden');
+        if (btnNavGeneralAttendanceBack) btnNavGeneralAttendanceBack.classList.add('hidden');
+
+        const thursdays = getThursdaysInMonth(state.currentMonth, state.currentYear);
+        const monthDisplay = document.getElementById('current-month-display');
+        if (monthDisplay) {
+            monthDisplay.textContent = `Refuerzos de ${getMonthName(state.currentMonth)} ${state.currentYear}`;
+        }
+        
+        renderHeaders(thursdays);
+        renderRowsOnly();
+    } else if (state.generalSubView === 'participants') {
+        document.getElementById('general-participants-subview').classList.remove('hidden');
+        
+        // Hide month/year selectors & add participant button in sidebar
+        if (monthSelect) monthSelect.closest('.sidebar-section').classList.add('hidden');
+        if (openDrawerBtn) openDrawerBtn.classList.add('hidden');
+        if (btnNavGeneralParticipants) btnNavGeneralParticipants.classList.add('hidden');
+        if (btnNavGeneralGroups) btnNavGeneralGroups.classList.add('hidden');
+        if (btnNavGeneralAttendanceBack) btnNavGeneralAttendanceBack.classList.remove('hidden');
+
+        renderGeneralParticipantsGrid();
+    } else if (state.generalSubView === 'groups') {
+        document.getElementById('general-groups-subview').classList.remove('hidden');
+        
+        // Hide month/year selectors & add participant button in sidebar
+        if (monthSelect) monthSelect.closest('.sidebar-section').classList.add('hidden');
+        if (openDrawerBtn) openDrawerBtn.classList.add('hidden');
+        if (btnNavGeneralParticipants) btnNavGeneralParticipants.classList.add('hidden');
+        if (btnNavGeneralGroups) btnNavGeneralGroups.classList.add('hidden');
+        if (btnNavGeneralAttendanceBack) btnNavGeneralAttendanceBack.classList.remove('hidden');
+
+        renderGeneralGroups();
+    } else if (state.generalSubView === 'detail') {
+        document.getElementById('general-participant-detail-subview').classList.remove('hidden');
+        
+        // Hide month/year selectors & add participant button in sidebar
+        if (monthSelect) monthSelect.closest('.sidebar-section').classList.add('hidden');
+        if (openDrawerBtn) openDrawerBtn.classList.add('hidden');
+        if (btnNavGeneralParticipants) btnNavGeneralParticipants.classList.add('hidden');
+        if (btnNavGeneralGroups) btnNavGeneralGroups.classList.add('hidden');
+        if (btnNavGeneralAttendanceBack) btnNavGeneralAttendanceBack.classList.remove('hidden');
+
+        renderGeneralParticipantDetail();
+    }
+}
+
+function renderGeneralGroups() {
+    const group1List = document.getElementById('group-1-list');
+    const group2List = document.getElementById('group-2-list');
+    const group1Count = document.getElementById('group-1-count');
+    const group2Count = document.getElementById('group-2-count');
+    
+    if (!group1List || !group2List) return;
+    
+    group1List.innerHTML = '';
+    group2List.innerHTML = '';
+    
+    // Get active participants for the current month
+    const activeParticipants = state.participants.filter(p => {
+        // Must not be hidden from attendance
+        if (p.hiddenFromAttendance) return false;
+        
+        // Month registration & eligibility check
+        const startMonth = typeof p.startMonth === 'number' ? p.startMonth : 0;
+        const startYear = typeof p.startYear === 'number' ? p.startYear : 2025;
+        const isEligibleByStart = isMonthAfterOrEqual(state.currentMonth, state.currentYear, startMonth, startYear);
+        
+        // Excluded months check (Solo este mes deletion)
+        const monthKey = `${state.currentYear}-${state.currentMonth}`;
+        const isNotExcluded = !p.excludedMonths || !p.excludedMonths.includes(monthKey);
+        
+        // End month/year check (Este y futuros deletion)
+        const hasEnded = p.endYear !== undefined && p.endMonth !== undefined && 
+                          isMonthAfterOrEqual(state.currentMonth, state.currentYear, p.endMonth, p.endYear);
+        const isEligibleByEnd = !hasEnded;
+        
+        return isEligibleByStart && isNotExcluded && isEligibleByEnd;
+    });
+    
+    // Separate into Group 1 and Group 2
+    const group1 = activeParticipants.filter(p => (p.group || 'Grupo 1') === 'Grupo 1')
+                                     .sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
+    const group2 = activeParticipants.filter(p => (p.group || 'Grupo 1') === 'Grupo 2')
+                                     .sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
+                                     
+    // Update counts
+    if (group1Count) group1Count.textContent = group1.length;
+    if (group2Count) group2Count.textContent = group2.length;
+    
+    // Render Group 1
+    if (group1.length === 0) {
+        group1List.innerHTML = `<li class="text-muted" style="padding: 12px; text-align: center; font-style: italic;">No hay participantes en este grupo</li>`;
+    } else {
+        group1.forEach(p => {
+            const li = document.createElement('li');
+            li.className = 'group-li';
+            li.innerHTML = `<span style="font-weight: 500;">${escapeHTML(p.name)}</span>`;
+            group1List.appendChild(li);
+        });
+    }
+    
+    // Render Group 2
+    if (group2.length === 0) {
+        group2List.innerHTML = `<li class="text-muted" style="padding: 12px; text-align: center; font-style: italic;">No hay participantes en este grupo</li>`;
+    } else {
+        group2.forEach(p => {
+            const li = document.createElement('li');
+            li.className = 'group-li';
+            li.innerHTML = `<span style="font-weight: 500;">${escapeHTML(p.name)}</span>`;
+            group2List.appendChild(li);
+        });
+    }
+}
+
+function renderGeneralParticipantsGrid() {
+    const grid = document.getElementById('general-participants-grid');
+    const emptyState = document.getElementById('general-participants-empty-state');
+    if (!grid) return;
+
+    grid.innerHTML = '';
+    
+    // Filter participants based on generalSearchQuery and not deleted from directory
+    const filtered = state.participants.filter(p => 
+        !p.deletedFromDirectory && p.name.toLowerCase().includes(state.generalSearchQuery)
+    ).sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' }));
+
+    if (filtered.length === 0) {
+        grid.classList.add('hidden');
+        if (emptyState) emptyState.classList.remove('hidden');
+    } else {
+        grid.classList.remove('hidden');
+        if (emptyState) emptyState.classList.add('hidden');
+
+        filtered.forEach(p => {
+            const card = document.createElement('div');
+            card.className = 'pers-card animate-slide-up';
+            
+            card.addEventListener('click', (e) => {
+                if (e.target.closest('.btn-action') || e.target.closest('.btn-danger')) return;
+                state.selectedGeneralParticipantId = p.id;
+                state.generalSubView = 'detail';
+                renderApp();
+            });
+
+            const group = p.group || 'Grupo 1';
+            const badgeClass = group === 'Grupo 2' ? 'badge-purple' : 'badge-blue';
+
+            card.innerHTML = `
+                <div class="pers-card-header">
+                    <h4>${escapeHTML(p.name)}</h4>
+                    <span class="badge ${badgeClass}">${group}</span>
+                </div>
+                <div class="pers-card-actions" style="margin-top: 16px; display: flex; justify-content: flex-end; gap: 8px;">
+                    <button class="btn-action btn-action-edit" title="Editar" onclick="event.stopPropagation(); openEditDrawerGeneral('${p.id}');">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                    </button>
+                    <button class="btn-action btn-action-delete" title="Eliminar" onclick="event.stopPropagation(); deleteGeneralParticipantFromDirectory('${p.id}', '${p.name.replace(/'/g, "\\'")}');">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+                    </button>
+                </div>
+            `;
+            grid.appendChild(card);
+        });
+    }
+}
+
+function openEditDrawerGeneral(id) {
+    const participant = state.participants.find(p => p.id === id);
+    if (participant) openEditDrawer(participant);
+}
+
+function deleteGeneralParticipantFromDirectory(id, name) {
+    state.deletingParticipantId = id;
+    state.deleteType = 'directory';
+    
+    // Customize confirmation modal
+    const titleEl = document.getElementById('delete-confirm-title');
+    const textEl = document.getElementById('delete-confirm-text');
+    const nameEl = document.getElementById('delete-participant-name');
+    
+    if (titleEl) titleEl.textContent = 'Confirmar Eliminación del Directorio';
+    if (textEl) {
+        textEl.innerHTML = `¿Seguro que quieres eliminar a <strong>${name}</strong> de la lista de participantes? (Esto no afectará su registro de asistencia)`;
+    } else if (nameEl) {
+        nameEl.textContent = name;
+    }
+    
+    showDeleteConfirmModal();
+}
+
+function renderGeneralParticipantDetail() {
+    const id = state.selectedGeneralParticipantId;
+    if (!id) return;
+
+    const participant = state.participants.find(p => p.id === id);
+    if (!participant) return;
+
+    const nameEl = document.getElementById('general-detail-name');
+    const groupEl = document.getElementById('general-detail-group');
+
+    if (nameEl) nameEl.textContent = participant.name;
+    if (groupEl) {
+        groupEl.textContent = participant.group || 'Grupo 1';
+        groupEl.className = `badge ${(participant.group || 'Grupo 1') === 'Grupo 2' ? 'badge-purple' : 'badge-blue'}`;
+    }
+
+    renderGeneralNotes(id);
+}
+
+function renderGeneralNotes(participantId) {
+    const notesContainer = document.getElementById('general-notes-container');
+    const notesEmpty = document.getElementById('general-notes-empty');
+    if (!notesContainer) return;
+
+    notesContainer.innerHTML = '';
+    const notes = state.generalNotes[participantId] || [];
+
+    if (notes.length === 0) {
+        if (notesEmpty) notesEmpty.classList.remove('hidden');
+    } else {
+        if (notesEmpty) notesEmpty.classList.add('hidden');
+        
+        // Sort notes by date descending
+        const sortedNotes = [...notes].sort((a, b) => b.date.localeCompare(a.date));
+        
+        sortedNotes.forEach(note => {
+            const noteItem = document.createElement('div');
+            noteItem.className = 'note-item animate-slide-up';
+            noteItem.innerHTML = `
+                <div class="note-item-header">
+                    <span class="note-item-date">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                        ${note.date.split('-').reverse().join('/')}
+                    </span>
+                    <div style="display: flex; gap: 8px;">
+                        <button class="btn-action btn-action-edit" title="Editar nota" onclick="openGeneralNoteEdit('${note.id}');">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                        </button>
+                        <button class="btn-action btn-action-delete" title="Eliminar nota" onclick="deleteGeneralNote('${note.id}');">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></svg>
+                        </button>
+                    </div>
+                </div>
+                <div class="note-item-content">${escapeHTML(note.text)}</div>
+            `;
+            notesContainer.appendChild(noteItem);
+        });
+    }
+}
+
+/* === General Note Dialog & Actions === */
+function openGeneralNoteModal() {
+    const modal = document.getElementById('add-general-note-modal');
+    const backdrop = document.getElementById('add-general-note-backdrop');
+    
+    const dateInput = document.getElementById('general-note-date');
+    const textInput = document.getElementById('general-note-text');
+
+    if (dateInput) {
+        const today = new Date();
+        const y = today.getFullYear();
+        const m = String(today.getMonth() + 1).padStart(2, '0');
+        const d = String(today.getDate()).padStart(2, '0');
+        dateInput.value = `${y}-${m}-${d}`;
+    }
+
+    if (textInput) textInput.value = "";
+
+    if (modal && backdrop) {
+        modal.classList.remove('hidden');
+        backdrop.classList.remove('hidden');
+        
+        void modal.offsetWidth;
+        void backdrop.offsetWidth;
+        
+        modal.classList.add('show');
+        backdrop.classList.add('show');
+        document.body.classList.add('modal-open');
+    }
+}
+
+function closeGeneralNoteModal() {
+    const modal = document.getElementById('add-general-note-modal');
+    const backdrop = document.getElementById('add-general-note-backdrop');
+    
+    if (modal && backdrop) {
+        modal.classList.remove('show');
+        backdrop.classList.remove('show');
+        document.body.classList.remove('modal-open');
+        
+        setTimeout(() => {
+            modal.classList.add('hidden');
+            backdrop.classList.add('hidden');
+            state.editingGeneralNoteId = null;
+            const modalTitle = modal.querySelector('.modal-header h3');
+            if (modalTitle) modalTitle.textContent = 'Agregar Nota de Seguimiento';
+            const submitBtn = modal.querySelector('button[type="submit"]');
+            if (submitBtn) {
+                submitBtn.textContent = 'Guardar Nota';
+            }
+        }, 300);
+    }
+}
+
+function handleGeneralNoteSubmit() {
+    if (state.editingGeneralNoteId) {
+        saveGeneralNoteEdit();
+    } else {
+        addGeneralNote();
+    }
+}
+
+function openGeneralNoteEdit(noteId) {
+    const participantId = state.selectedGeneralParticipantId;
+    if (!participantId) return;
+
+    const notes = state.generalNotes[participantId] || [];
+    const noteObj = notes.find(n => n.id === noteId);
+    if (!noteObj) return;
+
+    state.editingGeneralNoteId = noteId;
+
+    const modal = document.getElementById('add-general-note-modal');
+    const backdrop = document.getElementById('add-general-note-backdrop');
+
+    // Fill form
+    document.getElementById('general-note-date').value = noteObj.date;
+    document.getElementById('general-note-text').value = noteObj.text;
+
+    // Change title and button text
+    const title = modal.querySelector('.modal-header h3');
+    if (title) title.textContent = 'Editar Nota de Seguimiento';
+
+    const submitBtn = modal.querySelector('button[type="submit"]');
+    if (submitBtn) {
+        submitBtn.textContent = 'Guardar Cambios';
+    }
+
+    if (modal && backdrop) {
+        modal.classList.remove('hidden');
+        backdrop.classList.remove('hidden');
+        
+        void modal.offsetWidth;
+        void backdrop.offsetWidth;
+        
+        modal.classList.add('show');
+        backdrop.classList.add('show');
+        document.body.classList.add('modal-open');
+    }
+}
+
+function saveGeneralNoteEdit() {
+    const participantId = state.selectedGeneralParticipantId;
+    if (!participantId) return;
+
+    const noteId = state.editingGeneralNoteId;
+    const notes = state.generalNotes[participantId] || [];
+    const noteObj = notes.find(n => n.id === noteId);
+    if (!noteObj) return;
+
+    const date = document.getElementById('general-note-date').value;
+    const text = document.getElementById('general-note-text').value.trim();
+
+    if (!date || !text) {
+        showToast('Por favor completa todos los campos', 'danger');
+        return;
+    }
+
+    noteObj.date = date;
+    noteObj.text = text;
+
+    saveToLocalStorage();
+    closeGeneralNoteModal();
+    renderGeneralParticipantDetail();
+    showToast('Nota actualizada correctamente');
+}
+
+function addGeneralNote() {
+    const participantId = state.selectedGeneralParticipantId;
+    if (!participantId) return;
+
+    const date = document.getElementById('general-note-date').value;
+    const text = document.getElementById('general-note-text').value.trim();
+
+    if (!date || !text) {
+        showToast('Por favor completa todos los campos', 'danger');
+        return;
+    }
+
+    const noteId = 'note_gen_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+    const newNote = {
+        id: noteId,
+        date: date,
+        text: text
+    };
+
+    if (!state.generalNotes[participantId]) state.generalNotes[participantId] = [];
+    state.generalNotes[participantId].push(newNote);
+
+    saveToLocalStorage();
+    closeGeneralNoteModal();
+    renderGeneralParticipantDetail();
+    showToast('Nota registrada correctamente');
+}
+
+function deleteGeneralNote(noteId) {
+    const participantId = state.selectedGeneralParticipantId;
+    if (!participantId) return;
+
+    if (confirm('¿Seguro que deseas eliminar esta nota de seguimiento? Esta acción no se puede deshacer.')) {
+        state.generalNotes[participantId] = (state.generalNotes[participantId] || []).filter(n => n.id !== noteId);
+        saveToLocalStorage();
+        renderGeneralParticipantDetail();
         showToast('Nota eliminada correctamente', 'danger');
     }
 }
